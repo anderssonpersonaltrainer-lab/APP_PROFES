@@ -893,9 +893,22 @@ function rowToRegistro(row, clienteId){
   return r;
 }
 
+// Evita condición de carrera: si dos llamadas (ej. guardar un registro y refrescar la vista del
+// cliente) piden el Excel de un mismo cliente casi al mismo tiempo, ambas verían "no existe
+// todavía" y crearían un archivo cada una, duplicando el Excel. Este mapa guarda la promesa en
+// curso por cliente, así la segunda llamada espera el mismo resultado en vez de crear otro.
+const _sheetCreationInFlight = {};
 async function findOrCreateRegistroSheet(cliente){
   if(!driveConnected) return null;
   if(cliente.sheetId) return cliente.sheetId;
+  if(_sheetCreationInFlight[cliente.id]) return _sheetCreationInFlight[cliente.id];
+  const promise = _findOrCreateRegistroSheetInner(cliente).finally(()=>{
+    delete _sheetCreationInFlight[cliente.id];
+  });
+  _sheetCreationInFlight[cliente.id] = promise;
+  return promise;
+}
+async function _findOrCreateRegistroSheetInner(cliente){
   try{
     const sheetName = `Registro_${cliente.nombre}`;
     const q = encodeURIComponent(`'${cliente.drive}' in parents and name='${sheetName}' and trashed=false`);
