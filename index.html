@@ -729,7 +729,7 @@ function saveState(){
   try{
     const data = {
       REGISTROS, SCHEDULE, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
-      invoiceCounter, savedAt: new Date().toISOString(),
+      INVOICE_COUNTERS, savedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }catch(e){ console.warn('No se pudo guardar el estado localmente:', e); }
@@ -746,7 +746,13 @@ function loadState(){
     if(Array.isArray(data.DOCS_ENVIADOS)) DOCS_ENVIADOS = data.DOCS_ENVIADOS;
     if(Array.isArray(data.SUSPENSIONES)) SUSPENSIONES = data.SUSPENSIONES;
     if(Array.isArray(data.CLIENTES)) CLIENTES.splice(0, CLIENTES.length, ...data.CLIENTES);
-    if(typeof data.invoiceCounter === 'number') invoiceCounter = data.invoiceCounter;
+    if(data.INVOICE_COUNTERS && typeof data.INVOICE_COUNTERS === 'object'){
+      // Se combinan (no se reemplazan) para no perder los contadores reales precargados desde
+      // Drive si este navegador todavía no tiene un guardado propio para algún cliente nuevo.
+      Object.keys(data.INVOICE_COUNTERS).forEach(cid=>{
+        INVOICE_COUNTERS[cid] = Object.assign({}, INVOICE_COUNTERS[cid], data.INVOICE_COUNTERS[cid]);
+      });
+    }
     // El horario guardado trae la fecha calculada en un momento anterior — se recalcula siempre
     // contra la semana real vigente al cargar, para que nunca quede desincronizado.
     SCHEDULE.forEach(s=>{ s.fecha = dateForWeekday(s.dia); });
@@ -2591,7 +2597,29 @@ function exportRegistroExcel(clienteId){
 }
 
 /* ---------- CUENTA DE COBRO ---------- */
-let invoiceCounter = 0; // arranca en 0 (antes 4, número de ejemplo) — la primera cuenta de cobro real será 26-001
+// Contador de número de cuenta de cobro POR CLIENTE y POR AÑO (se reinicia en 001 cada año nuevo).
+// Antes había un solo contador global para todos los clientes, lo cual generaba números que no
+// coincidían con la cuenta real que cada cliente venía llevando (pedido de Andersson 22/07/2026:
+// "revisa cada usuario para saber cual es el numero de cuenta siguiente para algunos esta cuenta
+// 23-007 para otros es la tercera y así"). Los valores iniciales de 2026 se cargaron revisando,
+// cliente por cliente, la última cuenta de cobro real guardada en su carpeta de Drive (22/07/2026),
+// contando el número más alto de "Cuenta 26-0XX" encontrado en cada PDF ya emitido.
+const INVOICE_COUNTERS = {
+  c1:{2026:6}, c2:{2026:6}, c3:{2026:4}, c7:{2026:6}, c8:{2026:6}, c9:{2026:6}, c10:{2026:4},
+  c11:{2026:6}, c14:{2026:6}, c15:{2026:6}, c16:{2026:6}, c17:{2026:6}, c18:{2026:6}, c19:{2026:6},
+  c20:{2026:6}, c22:{2026:6}, c24:{2026:3}, c26:{2026:6}, c27:{2026:6}, c28:{2026:6}, c29:{2026:6},
+  c30:{2026:6}, c32:{2026:6}, c33:{2026:6}, c34:{2026:6}, c35:{2026:6}, c37:{2026:6}, c40:{2026:6},
+  c41:{2026:6}, c42:{2026:6}, c43:{2026:6},
+  // Los clientes que no aparecen aquí (inactivos o sin ninguna cuenta emitida todavía en 2026)
+  // simplemente empiezan en 001 la primera vez que se les genera una cuenta de cobro este año.
+};
+function nextInvoiceNumero(clienteId){
+  const year = new Date().getFullYear();
+  const counters = INVOICE_COUNTERS[clienteId] || (INVOICE_COUNTERS[clienteId] = {});
+  const next = (counters[year] || 0) + 1;
+  counters[year] = next;
+  return `${String(year).slice(2)}-${String(next).padStart(3,'0')}`;
+}
 
 // Resume los datos de salud (inicio/fin de clase) del registro de ese cliente en esa fecha,
 // para que la cuenta de cobro deje constancia completa de lo que se tomó en cada sesión.
@@ -2641,8 +2669,7 @@ function computeInvoice(clienteId, monthStr){
     {n:3, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
   ];
   const total = items.reduce((a,i)=>a+i.total,0);
-  invoiceCounter++;
-  const numero = `${String(new Date().getFullYear()).slice(2)}-${String(invoiceCounter).padStart(3,'0')}`;
+  const numero = nextInvoiceNumero(clienteId);
   const lastDay = new Date(+monthStr.split('-')[0], +monthStr.split('-')[1], 0).getDate();
   const fechaEmision = `${lastDay}-${monthStr.split('-')[1]}-${monthStr.split('-')[0]}`.split('-').reverse().join('-');
   return {cliente, items, total, detalle, numero, fecha: isoDate(new Date(+monthStr.split('-')[0], +monthStr.split('-')[1]-1, lastDay))};
@@ -2668,12 +2695,13 @@ function itemsVisibles(inv){
 function invoicePage1HTML(inv){
   const admin = USERS.find(u=>u.rol==='admin');
   return `
-  <div id="invoicePage1" style="background:#fff;padding:42px 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:100%;">
+  <div id="invoicePage1" style="background:#fff;padding:28px 44px 42px 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:100%;">
+    <div style="text-align:center;margin-bottom:12px;display:flex;justify-content:center;">${logoImg('black', 54)}</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;font-size:12.5px;">
       <div>Bogotá D.C&nbsp;&nbsp;&nbsp;${fmtFechaLarga(inv.fecha)}</div>
       <div><b>Cuenta</b>&nbsp;&nbsp;${inv.numero}</div>
     </div>
-    <div style="text-align:center;margin-top:18px;">
+    <div style="text-align:center;margin-top:14px;">
       <div style="font-weight:700;font-size:15px;">${inv.cliente.nombre}</div>
       <div style="font-size:12px;">CC: ${inv.cliente.cc}</div>
       <div style="font-size:11.5px;letter-spacing:.1em;margin:14px 0 6px;">DEBE A:</div>
@@ -2805,14 +2833,14 @@ const INVOICE_BOTTOM_MARGIN_PT = 26;      // margen inferior reservado en cada h
 const DETALLE_COLGROUP = `<colgroup><col style="width:5%"><col style="width:11%"><col style="width:16%"><col style="width:53%"><col style="width:15%"></colgroup>`;
 function detalleTheadRowHTML(){
   return `<tr style="color:#475569;">
-    <th style="padding:5px 6px;">#</th><th style="padding:5px 6px;">Fecha</th><th style="padding:5px 6px;">Profesor</th><th style="padding:5px 6px;">Detalle</th><th style="text-align:right;padding:5px 6px;">Costo</th>
+    <th style="padding:3px 5px;">#</th><th style="padding:3px 5px;">Fecha</th><th style="padding:3px 5px;">Profesor</th><th style="padding:3px 5px;">Detalle</th><th style="text-align:right;padding:3px 5px;">Costo</th>
   </tr>`;
 }
 function detalleRowHTML(d,i){
   return `<tr style="background:${i%2? '#f7f9fc':'#fff'};">
-    <td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${i+1}</td><td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${fmtFechaCorta(d.fecha)}</td><td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${d.profesor}</td>
-    <td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${d.texto}${d.salud?`<div style="font-size:9px;color:#64748b;margin-top:1px;line-height:1.25;">${d.salud}</div>`:''}</td>
-    <td style="text-align:right;padding:4px 6px;vertical-align:top;line-height:1.3;">${money(d.costo)}</td>
+    <td style="padding:3px 5px;vertical-align:top;line-height:1.2;">${i+1}</td><td style="padding:3px 5px;vertical-align:top;line-height:1.2;">${fmtFechaCorta(d.fecha)}</td><td style="padding:3px 5px;vertical-align:top;line-height:1.2;">${d.profesor}</td>
+    <td style="padding:3px 5px;vertical-align:top;line-height:1.2;">${d.texto}${d.salud?`<div style="font-size:8px;color:#64748b;margin-top:1px;line-height:1.15;">${d.salud}</div>`:''}</td>
+    <td style="text-align:right;padding:3px 5px;vertical-align:top;line-height:1.2;">${money(d.costo)}</td>
   </tr>`;
 }
 
@@ -2821,12 +2849,13 @@ function detalleRowHTML(d,i){
 function invoiceHeaderBlockHTML(inv){
   const admin = USERS.find(u=>u.rol==='admin');
   return `
-  <div style="background:#fff;padding:40px 44px 0 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+  <div style="background:#fff;padding:28px 44px 0 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    <div style="text-align:center;margin-bottom:12px;display:flex;justify-content:center;">${logoImg('black', 54)}</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;font-size:12.5px;">
       <div>Bogotá D.C&nbsp;&nbsp;&nbsp;${fmtFechaLarga(inv.fecha)}</div>
       <div><b>Cuenta</b>&nbsp;&nbsp;${inv.numero}</div>
     </div>
-    <div style="text-align:center;margin-top:18px;">
+    <div style="text-align:center;margin-top:14px;">
       <div style="font-weight:700;font-size:15px;">${inv.cliente.nombre}</div>
       <div style="font-size:12px;">CC: ${inv.cliente.cc}</div>
       <div style="font-size:11.5px;letter-spacing:.1em;margin:14px 0 6px;">DEBE A:</div>
@@ -2936,34 +2965,40 @@ async function buildInvoicePDFBlob(inv){
   let remaining = INVOICE_PAGE_H_PT - cursorY - INVOICE_BOTTOM_MARGIN_PT;
   pdf.addImage(header.dataUrl, 'PNG', 0, 0, INVOICE_PAGE_W_PT, header.heightPt);
 
-  // 2) Filas del detalle, agrupadas para que ninguna quede cortada entre hojas.
+  // 2) Filas del detalle, agrupadas para que ninguna quede cortada entre hojas. Se procesa en un
+  // bucle uniforme (incluyendo el último grupo) que SIEMPRE revisa si el grupo cabe en lo que queda
+  // de la hoja actual ANTES de colocarlo — la versión anterior tenía un bug: el último grupo se
+  // colocaba sin esa revisión, así que si no cabía completo se salía del borde de la hoja y esas
+  // filas finales quedaban cortadas/invisibles.
   const detalle = inv.detalle;
   if(detalle.length){
     const heightsPx = _measureDetalleRowHeightsPx(detalle);
     const heightsPt = heightsPx.map(h => h*INVOICE_PT_PER_PX);
-    let groupStart = 0, groupHeight = 0;
-    for(let i=0;i<detalle.length;i++){
-      const rh = heightsPt[i];
-      if(groupHeight + rh > remaining && i>groupStart){
-        // Cierra el grupo actual (no cabe otra fila más) y lo dibuja en la hoja actual.
-        const group = await _renderBlockToImage(invoiceRowsGroupHTML(detalle.slice(groupStart,i), groupStart));
-        pdf.addImage(group.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, group.heightPt);
-        cursorY += group.heightPt;
-        // Nueva hoja con el encabezado de columnas repetido.
+    let idx = 0;
+    while(idx < detalle.length){
+      // ¿Cuántas filas seguidas, empezando en idx, caben en el espacio restante de esta hoja?
+      let groupEnd = idx, groupHeight = 0;
+      while(groupEnd < detalle.length){
+        const rh = heightsPt[groupEnd];
+        if(groupHeight + rh > remaining && groupEnd > idx) break;
+        groupHeight += rh;
+        groupEnd++;
+      }
+      if(groupEnd === idx) groupEnd = idx+1; // ni una fila cabe (espacio casi agotado): forzar al menos 1 para no ciclar infinito
+      const group = await _renderBlockToImage(invoiceRowsGroupHTML(detalle.slice(idx, groupEnd), idx));
+      pdf.addImage(group.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, group.heightPt);
+      cursorY += group.heightPt;
+      idx = groupEnd;
+      remaining = INVOICE_PAGE_H_PT - cursorY - INVOICE_BOTTOM_MARGIN_PT;
+      if(idx < detalle.length){
+        // Queda contenido pendiente: nueva hoja con el encabezado de columnas repetido.
         pdf.addPage();
         const cont = await _renderBlockToImage(invoiceContinuationTheadHTML(inv.cliente.nombre));
         pdf.addImage(cont.dataUrl, 'PNG', 0, 0, INVOICE_PAGE_W_PT, cont.heightPt);
         cursorY = cont.heightPt;
         remaining = INVOICE_PAGE_H_PT - cursorY - INVOICE_BOTTOM_MARGIN_PT;
-        groupStart = i; groupHeight = 0;
       }
-      groupHeight += rh;
     }
-    // Último grupo pendiente.
-    const lastGroup = await _renderBlockToImage(invoiceRowsGroupHTML(detalle.slice(groupStart), groupStart));
-    pdf.addImage(lastGroup.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, lastGroup.heightPt);
-    cursorY += lastGroup.heightPt;
-    remaining = INVOICE_PAGE_H_PT - cursorY - INVOICE_BOTTOM_MARGIN_PT;
   }
 
   // 3) Pie (total/promedio + medios de pago + firma) — en la misma hoja si cabe, si no en una nueva.
