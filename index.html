@@ -410,6 +410,19 @@ const ICONS = {
 // parte de este cambio. Mientras este valor siga siendo el placeholder, connectGoogleDrive() vive
 // exactamente como hoy: la app funciona 100% con localStorage, sin sincronización entre equipos.
 const GOOGLE_CLIENT_ID = '728813589225-ub6doonibc0st2r3aqfdamv5tp2ec6j8.apps.googleusercontent.com';
+// API Key de Google (de solo lectura, sin login) para que Daniel y Karen reciban el horario
+// sincronizado SIN conectarse nunca a Google — ver "SINCRONIZACIÓN AUTOMÁTICA HACIA TODOS LOS
+// DISPOSITIVOS" más abajo. El administrador debe reemplazar este valor por la API Key real que
+// genere en el mismo proyecto de Google Cloud ("App Profes Andersson") → APIs y servicios →
+// Credenciales → Crear credenciales → Clave de API, restringida a la API de Drive. Mientras siga
+// siendo el placeholder, la app sigue funcionando igual que hoy (con lo que ya venía sincronizado o,
+// si es la primera vez, con el horario de ejemplo que trae el código).
+const GOOGLE_API_KEY = 'REEMPLAZAR_CON_TU_API_KEY';
+// ID fijo del archivo de caché pública en Drive (creado una sola vez el 22/07/2026 noche, en la
+// cuenta anderssonpersonaltrainer@gmail.com, nombre "app_data_cache.json"). El administrador lo
+// actualiza (escribe) con su token de Drive normal; cualquier dispositivo lo lee con la API Key de
+// arriba, sin necesitar ningún login. No hay que volver a crear este archivo nunca.
+const APP_DATA_CACHE_FILE_ID = '10lig7mI0LaqVB_kDrSPRhZcNgRYMc8cI';
 
 const USERS = [
   {id:'u_daniel', usuario:'daniel7tc@gmail.com', pass:'Daniel.2026#', nombre:'Daniel Tolosa', rol:'profesor', cc:'1.020.555.412', tel:'315 220 4488'},
@@ -833,7 +846,9 @@ function connectGoogleDrive(silent){
           renderDriveConnectUI();
           const cliente = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
           if(cliente) pullRegistrosForCliente(cliente).catch(e=>console.warn('Sync inicial de Drive falló:', e));
+          syncScheduleFromDrive().catch(e=>console.warn('Sync inicial de horario falló:', e));
           _scheduleDriveTokenRenewal();
+          _schedulePeriodicScheduleSync();
         } else if(!silent){
           toast('No se pudo conectar Google Drive', 'error');
         }
@@ -851,7 +866,7 @@ function connectGoogleDrive(silent){
 }
 
 // Renueva el token en silencio unos minutos antes de que expire (~1 hora), para que la sesión de
-// Drive del administrador dure mientras tenga la app abierta, sin que tenga que reconectar a mano.
+// Drive dure mientras la persona tenga la app abierta, sin que tenga que reconectar a mano.
 let _driveRenewalTimer = null;
 function _scheduleDriveTokenRenewal(){
   if(_driveRenewalTimer) clearTimeout(_driveRenewalTimer);
@@ -860,6 +875,12 @@ function _scheduleDriveTokenRenewal(){
 
 // Al abrir la app (o recargar la página), intenta reconectar Drive en silencio si el administrador
 // ya había autorizado antes en este navegador — así no tiene que hacer clic cada vez que entra.
+// IMPORTANTE (22/07/2026 noche, corregido): esto es SOLO para el administrador — el usuario pidió
+// explícitamente que Daniel y Karen nunca tengan que conectarse a Google de ningún modo. El horario
+// (y de aquí en adelante otros datos) se sigue sincronizando automáticamente, pero a través de un
+// archivo intermedio que el administrador publica en Drive y que los profesores solo LEEN con una
+// API Key pública de solo lectura — sin ningún login de su parte. Ver "SINCRONIZACIÓN AUTOMÁTICA
+// HACIA TODOS LOS DISPOSITIVOS (vía caché pública)" más abajo para el detalle completo.
 function attemptSilentDriveReconnect(){
   if(!(STATE.user && STATE.user.rol==='admin')) return;
   // Google Identity Services puede tardar un instante en cargar (script async) — reintenta unas
@@ -878,6 +899,7 @@ function attemptSilentDriveReconnect(){
 
 // Refresca el pequeño bloque de UI (botón + estado) donde sea que esté renderizado. Se llama tanto
 // desde bootApp (primer render) como después de conectar, para reflejar el estado actualizado.
+// Solo visible para el administrador — Daniel y Karen nunca ven este botón ni necesitan usarlo.
 function renderDriveConnectUI(){
   const wrap = document.getElementById('driveConnectWrap');
   if(!wrap) return;
@@ -889,10 +911,266 @@ function renderDriveConnectUI(){
   wrap.style.display = 'flex';
   wrap.innerHTML = `
     <button type="button" class="btn btn-outline btn-sm" id="btnConnectDrive">${driveConnected? 'Reconectar Google Drive' : 'Conectar Google Drive'}</button>
-    <span class="section-sub" style="font-size:11.5px;">${driveConnected? 'Drive conectado' : 'Drive no conectado'}</span>
+    <span class="section-sub" style="font-size:11.5px;">${driveConnected? 'Drive conectado — horario sincronizado' : 'Drive no conectado'}</span>
   `;
   const btn = document.getElementById('btnConnectDrive');
   if(btn) btn.addEventListener('click', connectGoogleDrive);
+}
+
+/* ---------- SINCRONIZACIÓN AUTOMÁTICA DEL HORARIO DESDE DRIVE (22/07/2026 noche) ----------
+   El usuario pidió: "se actualizo los horarios de Karen, pero no esta reflejada en al app requiero
+   que se actulice sin tener que decirte que se actualice" — es decir, el horario (SCHEDULE) ya no
+   debe depender de que alguien le pida a Claude que lo vuelva a leer manualmente desde Drive cada
+   vez que cambia. En vez de eso, la propia app lee directamente el Excel real "Horarios Profesores"
+   (Sheets API) cada vez que se conecta Drive y cada 15 minutos mientras la app sigue abierta, y
+   reconstruye SCHEDULE con lo que encuentre para la semana vigente — sin intervención manual.
+   Si algo falla (sin conexión, estructura inesperada, etc.) NUNCA se borra el horario que ya había
+   — se deja tal cual estaba (el último bueno, guardado en localStorage) y se reintenta más tarde. */
+const SCHEDULE_SPREADSHEET_ID = '1zMtnRbQpmLAUIFnMH4KbV3cgyl_fKnkWAOTpfd2z9sQ';
+const SCHEDULE_TABS = [
+  {sheetName:'Andersson_Bello', profesorId:'u_andersson'},
+  {sheetName:'Daniel_Toloza', profesorId:'u_daniel'},
+  {sheetName:'Karen_Silva', profesorId:'u_karen'},
+];
+const SCHEDULE_WEEKDAY_NAMES = ['lunes','martes','miércoles','jueves','viernes','sábado'];
+// Colores de relleno reales de Drive (confirmados leyendo el Excel con openpyxl el 22/07/2026) —
+// mismos valores que TIPO_SESION_META/BLOQUE_ESPECIAL_META usan para pintar la app.
+const SCHEDULE_COLOR_MAP = [
+  {hex:'c9daf8', categoria:'presencial'},
+  {hex:'fce5cd', categoria:'virtual'},
+  {hex:'ff9900', categoria:'virtual'},
+  {hex:'fff2cc', categoria:'desplazamiento'},
+  {hex:'d9ead3', categoria:'disponible'},
+  {hex:'d5a6bd', categoria:'masaje'},
+];
+// Alias conocidos: variantes/apodos que aparecen escritos así en el Excel de Drive y no coinciden
+// literalmente con el nombre en CLIENTES. Se actualiza si aparecen variantes nuevas.
+const CLIENTE_NAME_ALIASES = {
+  'matilde convers':'c32', // Maria Matilde
+  'jorge y camila':'c22', // Jorge Restrepo y Maria Camila
+  'carlos':'c9', // Carlos Uribe
+  'sandra liliana garcia':'c41', // Sandra Liliana
+  'lucia acero':'c28', // Maria Lucia Acero
+  'jinneth y santiago':'c19', // Jineth Santiago (+ Santiago Agreda)
+  'gladys y susan':'c16', // sesión conjunta Gladys Gutierrez + Susan Suarez — Gladys queda como titular
+};
+function normalizeNombre(s){
+  return (s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+function matchClienteId(rawText){
+  // Limpia frases de hora ("a las 6", "6:30", "11 am", números sueltos al final) para quedarnos
+  // solo con el nombre del cliente antes de intentar la coincidencia.
+  let t = normalizeNombre(rawText)
+    .replace(/\ba las\s+\d{1,2}(:\d{2})?\s*(am|pm|m)?\b/g,'')
+    .replace(/\b\d{1,2}:\d{2}\s*(am|pm)?\b/g,'')
+    .replace(/\b\d{1,2}\s*(am|pm)?\b\s*$/g,'')
+    .trim();
+  if(!t) return null;
+  if(CLIENTE_NAME_ALIASES[t]) return CLIENTE_NAME_ALIASES[t];
+  const exact = CLIENTES.find(c=>normalizeNombre(c.nombre)===t);
+  if(exact) return exact.id;
+  const contains = CLIENTES.find(c=>{
+    const cn = normalizeNombre(c.nombre);
+    return cn.includes(t) || t.includes(cn);
+  });
+  if(contains) return contains.id;
+  return null; // sin coincidencia — se deja el texto crudo como clienteId (clienteNombre() lo muestra tal cual)
+}
+function classifyBgColorHex(hex){
+  if(!hex) return null;
+  const h = hex.replace('#','').toLowerCase();
+  const match = SCHEDULE_COLOR_MAP.find(m=>m.hex===h);
+  return match ? match.categoria : null;
+}
+function rgbToHex(rgb){
+  if(!rgb) return null;
+  const c = v => Math.round(((v===undefined?1:v))*255).toString(16).padStart(2,'0');
+  return `${c(rgb.red)}${c(rgb.green)}${c(rgb.blue)}`;
+}
+// "6:00 AM - 7:00 AM" → {inicio:'06:00', fin:'07:00'}. Soporta "12:00 M" (mediodía) como caso especial.
+function parseBloqueHorario(label){
+  if(!label) return null;
+  const parts = label.split('-').map(s=>s.trim());
+  if(parts.length<2) return null;
+  const to24 = str=>{
+    const m = str.match(/(\d{1,2}):(\d{2})\s*(am|pm|m)?/i);
+    if(!m) return null;
+    let h = parseInt(m[1],10), min = parseInt(m[2],10);
+    const suf = (m[3]||'').toLowerCase();
+    if(suf==='pm' && h!==12) h+=12;
+    if(suf==='am' && h===12) h=0;
+    if(suf==='m') h=12; // "12:00 M" = mediodía
+    return pad(h)+':'+pad(min);
+  };
+  const inicio = to24(parts[0]), fin = to24(parts[1]);
+  if(!inicio || !fin) return null;
+  return {inicio, fin};
+}
+// Extrae una hora explícita del texto de la celda ("Maria Clara Borda a las 6:30" → "06:30"); si no
+// trae ninguna, usa la hora de inicio del bloque de la fila como valor por defecto.
+function extraerHoraDeTexto(text, horaBloqueInicio){
+  const m = (text||'').match(/(?:a las\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?!\S)/i);
+  if(m){
+    let h = parseInt(m[1],10);
+    const min = m[2]?parseInt(m[2],10):0;
+    const suf = (m[3]||'').toLowerCase();
+    if(suf==='pm' && h!==12) h+=12;
+    if(suf==='am' && h===12) h=0;
+    if(h>=0 && h<24) return pad(h)+':'+pad(min);
+  }
+  return horaBloqueInicio;
+}
+async function fetchScheduleGridData(){
+  const ranges = SCHEDULE_TABS.map(t=>`ranges=${encodeURIComponent(t.sheetName+'!A1:H60')}`).join('&');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SCHEDULE_SPREADSHEET_ID}?includeGridData=true&${ranges}&fields=sheets(properties.title,data.rowData.values(formattedValue,effectiveFormat.backgroundColor))`;
+  return driveApiFetch(url, {method:'GET'});
+}
+function buildScheduleFromGridData(data){
+  if(!data || !Array.isArray(data.sheets)) return null;
+  const nuevo = [];
+  let contador = 0;
+  const sinCoincidencia = [];
+  SCHEDULE_TABS.forEach(tabCfg=>{
+    const sheet = data.sheets.find(s=>s.properties && s.properties.title===tabCfg.sheetName);
+    if(!sheet || !sheet.data || !sheet.data[0] || !Array.isArray(sheet.data[0].rowData)) return;
+    const rows = sheet.data[0].rowData;
+    // Localiza la fila de encabezado (la que trae los 6 días de la semana) buscando el patrón
+    // "lunes, ..." en alguna celda — así no depende de un número de fila fijo por pestaña.
+    let headerRowIdx = -1, dayCols = [];
+    for(let r=0;r<rows.length;r++){
+      const cells = (rows[r].values||[]).map(v=>v&&v.formattedValue||'');
+      const cols = [];
+      cells.forEach((txt,ci)=>{ if(/^lunes,/i.test(txt.trim())) cols.push(ci); });
+      if(cols.length){ headerRowIdx = r; dayCols = cols.length===1 ? [cols[0],cols[0]+1,cols[0]+2,cols[0]+3,cols[0]+4,cols[0]+5] : cols; break; }
+    }
+    if(headerRowIdx<0) return;
+    for(let r=headerRowIdx+1; r<rows.length; r++){
+      const cellsRaw = rows[r].values || [];
+      const colA = (cellsRaw[0] && cellsRaw[0].formattedValue || '').trim();
+      const bloque = parseBloqueHorario(colA);
+      if(!bloque) continue; // fila sin un rango de horas reconocible (ej. vacía) — se ignora
+      dayCols.forEach((ci,diaIdx)=>{
+        const cell = cellsRaw[ci];
+        const texto = (cell && cell.formattedValue || '').trim();
+        if(!texto) return;
+        const hex = rgbToHex(cell.effectiveFormat && cell.effectiveFormat.backgroundColor);
+        const categoria = classifyBgColorHex(hex);
+        const tLower = texto.toLowerCase();
+        contador++;
+        const idBase = `dr${contador}`;
+        if(tLower.startsWith('desplazamiento')){
+          nuevo.push({id:idBase, profesorId:tabCfg.profesorId, dia:diaIdx, hora:extraerHoraDeTexto(texto, bloque.inicio), tipo:'Desplazamiento', estado:'pendiente'});
+          return;
+        }
+        if(tLower.startsWith('disponible')){
+          nuevo.push({id:idBase, profesorId:tabCfg.profesorId, dia:diaIdx, hora:extraerHoraDeTexto(texto, bloque.inicio), tipo:'Disponible', estado:'pendiente'});
+          return;
+        }
+        if(tLower.includes('almuerzo')){
+          nuevo.push({id:idBase, profesorId:tabCfg.profesorId, dia:diaIdx, hora:bloque.inicio, horaFin:bloque.fin, tipo:'Almuerzo', estado:'pendiente'});
+          return;
+        }
+        // Bloque de cliente (presencial/virtual/masaje). Si la celda solo dice "Masaje" sin nombre,
+        // no se inventa el cliente — se deja el texto crudo tal cual para que quede visible y el
+        // administrador pueda completarlo manualmente.
+        const clienteId = matchClienteId(texto) || texto;
+        if(clienteId===texto) sinCoincidencia.push(texto);
+        let tipoLabel = 'Entrenamiento adaptado Presencial', lugar = 'Domicilio cliente';
+        if(categoria==='virtual'){ tipoLabel='Entrenamiento adaptado Online'; lugar='Online'; }
+        else if(categoria==='masaje'){ tipoLabel='Masaje terapéutico'; lugar='Domicilio cliente'; }
+        nuevo.push({id:idBase, clienteId, profesorId:tabCfg.profesorId, dia:diaIdx, hora:extraerHoraDeTexto(texto, bloque.inicio), horaFin:bloque.fin, tipo:tipoLabel, lugar, estado:'pendiente'});
+      });
+    }
+  });
+  return {nuevo, sinCoincidencia};
+}
+let _lastScheduleSyncAt = null;
+async function syncScheduleFromDrive(){
+  if(!driveConnected) return;
+  try{
+    const data = await fetchScheduleGridData();
+    if(!data) return; // fetch falló (sin red, token vencido, etc.) — se deja el horario actual tal cual
+    const resultado = buildScheduleFromGridData(data);
+    // Salvaguarda: si el parseo encontró muy pocas sesiones (ej. estructura de la hoja cambió de
+    // forma inesperada), no se reemplaza el horario existente — mejor un horario desactualizado
+    // que uno vacío/roto.
+    if(!resultado || resultado.nuevo.length < 10){
+      console.warn('syncScheduleFromDrive: muy pocas sesiones detectadas, se conserva el horario actual.');
+      return;
+    }
+    SCHEDULE = resultado.nuevo;
+    SCHEDULE.forEach(s=>{ s.fecha = dateForWeekday(s.dia); });
+    _lastScheduleSyncAt = new Date().toISOString();
+    if(resultado.sinCoincidencia.length){
+      console.warn('syncScheduleFromDrive: texto sin coincidencia de cliente (se muestra tal cual en el horario):', resultado.sinCoincidencia);
+    }
+    saveState();
+    if(document.getElementById('view-horario')) renderHorario();
+    publishAppDataCache().catch(e=>console.warn('publishAppDataCache falló:', e));
+  }catch(e){
+    console.warn('syncScheduleFromDrive falló (se conserva el horario actual):', e);
+  }
+}
+let _scheduleSyncTimer = null;
+function _schedulePeriodicScheduleSync(){
+  if(_scheduleSyncTimer) clearInterval(_scheduleSyncTimer);
+  _scheduleSyncTimer = setInterval(()=>{ if(driveConnected) syncScheduleFromDrive(); }, 15*60*1000); // 15 min
+}
+
+/* ---------- SINCRONIZACIÓN AUTOMÁTICA HACIA TODOS LOS DISPOSITIVOS (vía caché pública, 22/07/2026 noche) ----------
+   El usuario aclaró: "ellos no deben estar conectandose a google drive... para eso hay un
+   administrador... debe existir la forma que automaticamente se actualicen [los datos] sin
+   intervención de ellos." Solución: SOLO el administrador conecta su cuenta de Google (como ya
+   funcionaba). Cada vez que su navegador sincroniza el horario desde Drive (syncScheduleFromDrive,
+   arriba), también PUBLICA el resultado en un archivo de caché público en Drive
+   (APP_DATA_CACHE_FILE_ID, "anyone with link puede leer"). Daniel y Karen (y el propio
+   administrador en otros dispositivos) simplemente LEEN ese archivo con una API Key de solo
+   lectura (GOOGLE_API_KEY) — sin ningún login ni botón de "Conectar" de su parte. Esto corre solo,
+   en cada apertura de la app y cada pocos minutos, sin que nadie tenga que pedirlo.
+   ⚠️ Alcance actual: por ahora esta caché solo cubre el HORARIO. Los precios y la Anamnesis
+   completa de cada cliente viven en archivos .xlsm individuales por cliente (no en una sola hoja
+   de Google Sheets como el horario), lo cual requiere un parser de Excel binario en el navegador —
+   es una pieza más grande, todavía no construida. Documentado como pendiente explícito más abajo
+   (no se inventa que ya está resuelto). */
+async function publishAppDataCache(){
+  if(!driveConnected || !(STATE.user && STATE.user.rol==='admin')) return;
+  try{
+    const payload = { schedule: SCHEDULE, updatedAt: new Date().toISOString() };
+    await driveApiFetch(`https://www.googleapis.com/upload/drive/v3/files/${APP_DATA_CACHE_FILE_ID}?uploadType=media`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload),
+    });
+    // Se asegura de que el archivo sea legible por cualquiera con el enlace (idempotente — si ya
+    // está compartido así, Drive simplemente no agrega un permiso duplicado, no falla).
+    await driveApiFetch(`https://www.googleapis.com/drive/v3/files/${APP_DATA_CACHE_FILE_ID}/permissions`, {
+      method:'POST', body:{type:'anyone', role:'reader'},
+    });
+  }catch(e){
+    console.warn('publishAppDataCache falló (los demás dispositivos seguirán con la última copia que ya tenían):', e);
+  }
+}
+// Lee la caché pública — funciona para CUALQUIER usuario (admin, Daniel, Karen), sin login, usando
+// solo la API Key. Se llama al abrir la app y periódicamente, para todos los roles.
+async function fetchAppDataCache(){
+  if(GOOGLE_API_KEY==='REEMPLAZAR_CON_TU_API_KEY') return; // administrador aún no generó su API Key
+  try{
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${APP_DATA_CACHE_FILE_ID}?alt=media&key=${GOOGLE_API_KEY}`);
+    if(!res.ok) return;
+    const data = await res.json();
+    if(Array.isArray(data.schedule) && data.schedule.length>=10){
+      SCHEDULE = data.schedule;
+      SCHEDULE.forEach(s=>{ s.fecha = dateForWeekday(s.dia); });
+      saveState();
+      if(document.getElementById('view-horario')) renderHorario();
+    }
+  }catch(e){
+    console.warn('fetchAppDataCache falló (se conserva el horario ya cargado):', e);
+  }
+}
+let _cacheFetchTimer = null;
+function _scheduleCacheFetch(){
+  if(_cacheFetchTimer) clearInterval(_cacheFetchTimer);
+  fetchAppDataCache();
+  _cacheFetchTimer = setInterval(fetchAppDataCache, 10*60*1000); // 10 min, para TODOS los roles
 }
 
 async function driveApiFetch(url, options){
@@ -1341,7 +1619,8 @@ function bootApp(startModule){
   }
 
   renderDriveConnectUI();
-  attemptSilentDriveReconnect();
+  attemptSilentDriveReconnect(); // solo hace algo si es admin — ver nota en la función
+  _scheduleCacheFetch(); // para TODOS los roles: lee el horario ya sincronizado, sin login
 
   switchModule(startModule || 'horario');
   renderNotifDrawer();
@@ -2637,6 +2916,38 @@ function registroSaludTexto(clienteId, fecha){
   return `Inicio: ${pre} — Fin: ${post}`;
 }
 
+// Promedio de los datos de salud tomados AL INICIAR la clase (PA sistólica/diastólica, ppm, SpO2)
+// durante el mes de la cuenta de cobro, solo con las sesiones que sí tienen ese dato registrado
+// (se excluyen los campos marcados "No aplica" y los que quedaron vacíos — nunca se inventa un
+// promedio con menos datos de los que realmente hay). Devuelve null si ningún registro del mes
+// tiene ni un solo dato de salud utilizable, para no mostrar un promedio vacío/engañoso.
+function promedioSaludMes(clienteId, monthStr){
+  const registros = REGISTROS.filter(r=>r.clienteId===clienteId && r.fecha && r.fecha.startsWith(monthStr));
+  const campos = ['preSis','preDia','prePpm','preSpo2'];
+  const naCampo = { preSis:'preSisNA', preDia:'preDiaNA', prePpm:'prePpmNA', preSpo2:'preSpo2NA' };
+  const sumas = {}, conteos = {};
+  campos.forEach(c=>{ sumas[c]=0; conteos[c]=0; });
+  registros.forEach(r=>{
+    campos.forEach(c=>{
+      if(r[naCampo[c]]) return; // marcado explícitamente "No aplica" — no entra en el promedio
+      const v = r[c];
+      if(v===undefined || v===null || v==='') return; // vacío — tampoco entra
+      sumas[c] += Number(v);
+      conteos[c]++;
+    });
+  });
+  const totalConteo = campos.reduce((a,c)=>a+conteos[c],0);
+  if(totalConteo===0) return null;
+  const promedio = {};
+  campos.forEach(c=>{ promedio[c] = conteos[c] ? Math.round(sumas[c]/conteos[c]) : null; });
+  return promedio;
+}
+function promedioSaludTexto(promedio){
+  if(!promedio) return null;
+  const v = x => x===null ? '—' : x;
+  return `PA ${v(promedio.preSis)}/${v(promedio.preDia)} · ppm ${v(promedio.prePpm)} · SpO2 ${promedio.preSpo2===null?'—':promedio.preSpo2+'%'}`;
+}
+
 function computeInvoice(clienteId, monthStr){
   const cliente = CLIENTES.find(c=>c.id===clienteId);
   const entries = HISTORIAL.filter(h=>h.clienteId===clienteId && h.fecha.startsWith(monthStr)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
@@ -2672,7 +2983,8 @@ function computeInvoice(clienteId, monthStr){
   const numero = nextInvoiceNumero(clienteId);
   const lastDay = new Date(+monthStr.split('-')[0], +monthStr.split('-')[1], 0).getDate();
   const fechaEmision = `${lastDay}-${monthStr.split('-')[1]}-${monthStr.split('-')[0]}`.split('-').reverse().join('-');
-  return {cliente, items, total, detalle, numero, fecha: isoDate(new Date(+monthStr.split('-')[0], +monthStr.split('-')[1]-1, lastDay))};
+  const promedioSalud = promedioSaludMes(clienteId, monthStr);
+  return {cliente, items, total, detalle, numero, promedioSalud, fecha: isoDate(new Date(+monthStr.split('-')[0], +monthStr.split('-')[1]-1, lastDay))};
 }
 
 const NORMAS_CANCELACION = [
@@ -2739,7 +3051,7 @@ function invoicePage1HTML(inv){
         </tr>`).join('')}
       </tbody>
       <tfoot><tr style="background:#eaf1fc;">
-        <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;">PROMEDIO</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
+        <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;font-size:9.5px;">${inv.promedioSalud? `PROMEDIO SALUD (inicio de clase): ${promedioSaludTexto(inv.promedioSalud)}` : ''}</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
       </tr></tfoot>
     </table>
 
@@ -2908,7 +3220,7 @@ function invoiceFooterBlockHTML(inv){
   return `
   <div style="background:#fff;padding:0 44px 40px 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
     <table style="font-size:11px;">${DETALLE_COLGROUP}<tfoot><tr style="background:#eaf1fc;">
-      <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;">PROMEDIO</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
+      <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;font-size:9.5px;">${inv.promedioSalud? `PROMEDIO SALUD (inicio de clase): ${promedioSaludTexto(inv.promedioSalud)}` : ''}</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
     </tr></tfoot></table>
     <div style="margin-top:24px;font-size:11.5px;line-height:1.7;color:#334155;">
       <b style="color:#1e293b;">Medios de pago:</b><br>
