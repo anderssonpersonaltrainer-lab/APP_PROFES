@@ -2759,12 +2759,46 @@ function simulateGuardarEnDrive(inv, filename){
   renderNotifDrawer();
 }
 
-// Punto único que decide cómo avisar del guardado en Drive: si el administrador tiene Drive
-// conectado, intenta subir el PDF de verdad a Drive/[Cliente]/[Año]/[Mes_Cliente].pdf y avisa según
-// el resultado real; si no está conectado, cae al aviso simulado de antes (documentando la ruta que
-// tendría) para no romper el flujo de quien todavía no ha conectado Drive.
+// Modal de confirmación: solo si el administrador confirma explícitamente que esta es la versión
+// FINAL de la cuenta de cobro (ya revisada, sin más cambios pendientes de ese mes) se sube el PDF a
+// la carpeta del cliente en Drive. Así se evita que cada borrador/regeneración intermedia quede
+// guardado ahí — solo la que el administrador confirma como definitiva. Devuelve una Promise<boolean>.
+function confirmarCuentaFinalModal(inv, filename){
+  return new Promise((resolve)=>{
+    openModal(`
+      <div class="modal-head">
+        <h3>Confirmar cuenta de cobro final</h3>
+        <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
+      </div>
+      <div class="modal-body">
+        <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
+          <div style="font-weight:700;">${inv.cliente.nombre}</div>
+          <div class="section-sub">${nombreMes(STATE.invoiceMonth)} · ${filename}</div>
+        </div>
+        <div class="card" style="padding:12px 14px;background:#EFF6FF;border:1.5px solid #93C5FD;">
+          <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:4px;">¿Esta es la versión final de este mes?</div>
+          <div style="font-size:12.5px;color:var(--ink-soft);">Confirma solo si ya revisaste el detalle (registros correctos, sin ediciones pendientes). Al confirmar, el PDF se guarda en la carpeta de Drive del cliente, dentro de la subcarpeta del año. Si todavía es un borrador, elige "Todavía no" — el PDF se descarga igual para que lo revises, pero no se guarda en Drive.</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="btnNoEsFinalCuenta">Todavía no, solo revisar</button>
+        <button class="btn btn-primary" id="btnConfirmarFinalCuenta">Sí, es la final — guardar en Drive</button>
+      </div>
+    `);
+    document.getElementById('btnNoEsFinalCuenta').addEventListener('click', ()=>{ closeModal(); resolve(false); });
+    document.getElementById('btnConfirmarFinalCuenta').addEventListener('click', ()=>{ closeModal(); resolve(true); });
+  });
+}
+
+// Punto único que decide cómo guardar/avisar del guardado en Drive. Si el administrador tiene Drive
+// conectado, primero le pide confirmar que esta es la versión FINAL (ver confirmarCuentaFinalModal);
+// solo si confirma, sube el PDF de verdad a Drive/[Cliente]/[Año]/[Mes_Cliente].pdf. Si no confirma,
+// o si Drive no está conectado todavía, cae al aviso simulado de antes (documentando la ruta que
+// tendría) para no romper el flujo de quien todavía no ha conectado Drive o solo está revisando.
 async function guardarCuentaEnDriveConAviso(inv, filename, blob){
   if(driveConnected){
+    const esFinal = await confirmarCuentaFinalModal(inv, filename);
+    if(!esFinal) return false;
     const ok = await guardarPDFEnDriveReal(inv, filename, blob);
     if(ok){
       const anio = STATE.invoiceMonth.split('-')[0];
@@ -2772,7 +2806,7 @@ async function guardarCuentaEnDriveConAviso(inv, filename, blob){
       renderNotifDrawer();
       return true;
     }
-    toast('El PDF se descargó, pero no se pudo confirmar el guardado automático en Drive — revísalo manualmente.', 'error');
+    toast('Confirmaste la cuenta final, pero no se pudo confirmar el guardado automático en Drive — revísalo manualmente.', 'error');
     return false;
   }
   simulateGuardarEnDrive(inv, filename);
