@@ -261,6 +261,18 @@ th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04e
 td{padding:12px;border-bottom:1px solid var(--line);font-size:13.5px;}
 tr:last-child td{border-bottom:none;}
 .table-wrap{overflow-x:auto;border-radius:var(--radius-md);}
+/* Tabla de Sesiones: muchas columnas (datos de salud de inicio/fin) hacían que cada fila quedara
+   muy alta y difícil de manejar, sobre todo en celular. Se reduce el padding y el tamaño de fuente
+   solo en esta tabla (sin afectar el resto de tablas de la app), y se fija un ancho mínimo por
+   columna para que el scroll horizontal en pantallas chicas sea más predecible. */
+#tablaRegistro th{padding:6px 8px;font-size:10.5px;white-space:nowrap;}
+#tablaRegistro td{padding:6px 8px;font-size:12.5px;vertical-align:middle;}
+#tablaRegistro td, #tablaRegistro th{min-width:52px;}
+#tablaRegistro td:nth-child(1){min-width:28px;}
+#tablaRegistro td:nth-child(2){min-width:80px;}
+#tablaRegistro td:nth-child(3){min-width:110px;}
+#tablaRegistro td:last-child{min-width:150px;}
+#tablaRegistro .pill{padding:3px 8px;}
 
 @media (max-width:900px){
   .sidebar{display:none;}
