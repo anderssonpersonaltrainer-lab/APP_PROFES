@@ -791,10 +791,17 @@ function clearSession(){
 let driveAccessToken = null;
 let driveConnected = false;
 
-function connectGoogleDrive(){
+// connectGoogleDrive(silent): con silent=true intenta reconectar SIN mostrar ningún popup ni aviso
+// de error — se usa para reconectar automáticamente al abrir la app y para renovar el token antes
+// de que expire (dura ~1 hora), sin interrumpir al administrador. Si el navegador ya no recuerda una
+// autorización previa (navegador nuevo, cookies borradas, permiso revocado), el intento silencioso
+// simplemente no hace nada visible y el botón sigue mostrando "Conectar Google Drive" para que lo
+// haga manualmente esa vez. Con silent=false (clic manual del botón) sí muestra el popup normal de
+// Google y los avisos de éxito/error de siempre.
+function connectGoogleDrive(silent){
   try{
     if(typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2){
-      toast('Google Identity Services no cargó todavía. Intenta de nuevo en un momento.', 'error');
+      if(!silent) toast('Google Identity Services no cargó todavía. Intenta de nuevo en un momento.', 'error');
       return;
     }
     const tokenClient = google.accounts.oauth2.initTokenClient({
@@ -804,20 +811,51 @@ function connectGoogleDrive(){
         if(resp && resp.access_token){
           driveAccessToken = resp.access_token;
           driveConnected = true;
-          toast('Google Drive conectado', 'success');
+          if(!silent) toast('Google Drive conectado', 'success');
           renderDriveConnectUI();
           const cliente = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
           if(cliente) pullRegistrosForCliente(cliente).catch(e=>console.warn('Sync inicial de Drive falló:', e));
-        } else {
+          _scheduleDriveTokenRenewal();
+        } else if(!silent){
           toast('No se pudo conectar Google Drive', 'error');
         }
       },
+      error_callback: ()=>{
+        // El intento silencioso puede fallar (ej. requiere elegir cuenta) — no molestar en ese caso.
+        if(!silent) toast('No se pudo conectar Google Drive', 'error');
+      },
     });
-    tokenClient.requestAccessToken();
+    tokenClient.requestAccessToken(silent ? { prompt:'none' } : {});
   }catch(e){
     console.warn('connectGoogleDrive falló:', e);
-    toast('No se pudo iniciar la conexión con Google Drive', 'error');
+    if(!silent) toast('No se pudo iniciar la conexión con Google Drive', 'error');
   }
+}
+
+// Renueva el token en silencio unos minutos antes de que expire (~1 hora), para que la sesión de
+// Drive del administrador dure mientras tenga la app abierta, sin que tenga que reconectar a mano.
+let _driveRenewalTimer = null;
+function _scheduleDriveTokenRenewal(){
+  if(_driveRenewalTimer) clearTimeout(_driveRenewalTimer);
+  _driveRenewalTimer = setTimeout(()=>{ connectGoogleDrive(true); }, 50*60*1000); // 50 min
+}
+
+// Al abrir la app (o recargar la página), intenta reconectar Drive en silencio si el administrador
+// ya había autorizado antes en este navegador — así no tiene que hacer clic cada vez que entra.
+function attemptSilentDriveReconnect(){
+  if(!(STATE.user && STATE.user.rol==='admin')) return;
+  // Google Identity Services puede tardar un instante en cargar (script async) — reintenta unas
+  // pocas veces antes de rendirse silenciosamente.
+  let intentos = 0;
+  const tryConnect = ()=>{
+    intentos++;
+    if(typeof google !== 'undefined' && google.accounts && google.accounts.oauth2){
+      connectGoogleDrive(true);
+    } else if(intentos < 10){
+      setTimeout(tryConnect, 300);
+    }
+  };
+  tryConnect();
 }
 
 // Refresca el pequeño bloque de UI (botón + estado) donde sea que esté renderizado. Se llama tanto
@@ -1285,6 +1323,7 @@ function bootApp(startModule){
   }
 
   renderDriveConnectUI();
+  attemptSilentDriveReconnect();
 
   switchModule(startModule || 'horario');
   renderNotifDrawer();
