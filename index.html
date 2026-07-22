@@ -974,6 +974,78 @@ async function autoShareClienteSheet(cliente, sheetId){
   }
 }
 
+// Busca (o crea) la subcarpeta del año dentro de la carpeta de Drive del cliente — ej. carpeta
+// "2026" dentro de la carpeta de Elisa Shlegel — para guardar ahí la cuenta de cobro de ese año.
+async function findOrCreateYearFolder(cliente, year){
+  if(!driveConnected) return null;
+  try{
+    const q = encodeURIComponent(`'${cliente.drive}' in parents and name='${year}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const listRes = await driveApiFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, { method:'GET' });
+    if(listRes && Array.isArray(listRes.files) && listRes.files.length) return listRes.files[0].id;
+    const createRes = await driveApiFetch('https://www.googleapis.com/drive/v3/files', {
+      method:'POST',
+      body: { name:String(year), mimeType:'application/vnd.google-apps.folder', parents:[cliente.drive] },
+    });
+    return createRes ? createRes.id : null;
+  }catch(e){
+    console.warn('findOrCreateYearFolder falló:', e);
+    return null;
+  }
+}
+
+// Sube (o reemplaza si ya existe) un archivo binario dentro de una carpeta de Drive específica.
+// Usa upload multipart (metadata + contenido en una sola petición) porque driveApiFetch solo maneja
+// JSON — aquí necesitamos mandar el PDF como bytes crudos junto con su nombre.
+async function uploadFileToDriveFolder(folderId, filename, blob, mimeType, existingFileId){
+  if(!driveConnected) return null;
+  try{
+    const metadata = existingFileId ? { name: filename } : { name: filename, parents:[folderId] };
+    const boundary = 'appprofes_' + Date.now();
+    const encoder = new TextEncoder();
+    const metadataPart = encoder.encode(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`);
+    const mediaHeader = encoder.encode(`--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`);
+    const closeDelim = encoder.encode(`\r\n--${boundary}--`);
+    const mediaBytes = new Uint8Array(await blob.arrayBuffer());
+    const body = new Blob([metadataPart, mediaHeader, mediaBytes, closeDelim]);
+    const url = existingFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const res = await fetch(url, {
+      method: existingFileId ? 'PATCH' : 'POST',
+      headers: { 'Authorization': `Bearer ${driveAccessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    if(!res.ok){ console.warn('uploadFileToDriveFolder: respuesta no OK', res.status); return null; }
+    return await res.json();
+  }catch(e){
+    console.warn('uploadFileToDriveFolder falló:', e);
+    return null;
+  }
+}
+
+// Guarda de verdad el PDF de la cuenta de cobro en Drive/[Cliente]/[Año]/[Mes_Cliente].pdf. Si ya
+// existe un PDF con ese mismo nombre en esa carpeta (ej. se volvió a generar la cuenta del mismo
+// mes tras una corrección), lo reemplaza en vez de crear un duplicado. Devuelve true/false según
+// si el guardado real se completó — el llamador decide qué avisarle al usuario según el resultado.
+async function guardarPDFEnDriveReal(inv, filename, blob){
+  if(!driveConnected) return false;
+  try{
+    const cliente = inv.cliente;
+    if(!cliente || !cliente.drive) return false;
+    const year = STATE.invoiceMonth.split('-')[0];
+    const folderId = await findOrCreateYearFolder(cliente, year);
+    if(!folderId) return false;
+    const q = encodeURIComponent(`'${folderId}' in parents and name='${filename}' and trashed=false`);
+    const listRes = await driveApiFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, { method:'GET' });
+    const existingId = (listRes && Array.isArray(listRes.files) && listRes.files.length) ? listRes.files[0].id : null;
+    const result = await uploadFileToDriveFolder(folderId, filename, blob, 'application/pdf', existingId);
+    return !!result;
+  }catch(e){
+    console.warn('guardarPDFEnDriveReal falló:', e);
+    return false;
+  }
+}
+
 async function appendRegistroToSheet(cliente, registro){
   if(!driveConnected) return null;
   try{
@@ -2687,6 +2759,26 @@ function simulateGuardarEnDrive(inv, filename){
   renderNotifDrawer();
 }
 
+// Punto único que decide cómo avisar del guardado en Drive: si el administrador tiene Drive
+// conectado, intenta subir el PDF de verdad a Drive/[Cliente]/[Año]/[Mes_Cliente].pdf y avisa según
+// el resultado real; si no está conectado, cae al aviso simulado de antes (documentando la ruta que
+// tendría) para no romper el flujo de quien todavía no ha conectado Drive.
+async function guardarCuentaEnDriveConAviso(inv, filename, blob){
+  if(driveConnected){
+    const ok = await guardarPDFEnDriveReal(inv, filename, blob);
+    if(ok){
+      const anio = STATE.invoiceMonth.split('-')[0];
+      NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó en: Drive / ${inv.cliente.nombre} / ${anio} / ${filename}`, hora:'Ahora', leido:false});
+      renderNotifDrawer();
+      return true;
+    }
+    toast('El PDF se descargó, pero no se pudo confirmar el guardado automático en Drive — revísalo manualmente.', 'error');
+    return false;
+  }
+  simulateGuardarEnDrive(inv, filename);
+  return false;
+}
+
 async function downloadInvoicePDF(inv){
   const btn = document.getElementById('btnDownloadInvoice');
   const original = btn.innerHTML;
@@ -2697,8 +2789,8 @@ async function downloadInvoicePDF(inv){
     const a = document.createElement('a');
     a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 4000);
-    simulateGuardarEnDrive(inv, filename);
-    toast('PDF descargado y guardado en Drive', 'success');
+    const guardadoReal = await guardarCuentaEnDriveConAviso(inv, filename, blob);
+    toast(guardadoReal ? 'PDF descargado y guardado en la carpeta del cliente en Drive' : 'PDF descargado', 'success');
   }catch(err){
     console.error(err);
     toast('No se pudo generar el PDF', 'error');
@@ -2721,7 +2813,7 @@ async function shareInvoicePDF(inv, via){
     const { blob, filename } = await buildInvoicePDFBlob(inv);
     const mensaje = `Hola ${inv.cliente.nombre.split(' ')[0]}, te comparto tu cuenta de cobro de ${nombreMes(STATE.invoiceMonth)} por un total de ${money(inv.total)}. Cualquier duda me cuentas.`;
 
-    simulateGuardarEnDrive(inv, filename);
+    await guardarCuentaEnDriveConAviso(inv, filename, blob);
     const file = new File([blob], filename, {type:'application/pdf'});
     const canShareFile = navigator.canShare && navigator.canShare({files:[file]});
     if(canShareFile){
