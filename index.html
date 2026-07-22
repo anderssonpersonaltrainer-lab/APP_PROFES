@@ -2645,6 +2645,14 @@ const NORMAS_CANCELACION = [
   {n:6, t:'Reposición de la sesión:', d:'Cuando el cliente no pueda tomar alguna sesión y notifique de manera anticipada, cuenta con la posibilidad de postponerla. Lo anterior únicamente si el entrenador tiene otro horario disponible, de no ser así la situación se entenderá como una cancelación anticipada.'},
 ];
 
+// Oculta del resumen los conceptos de cancelación que no tuvieron ninguna ocurrencia ese mes (cant=0)
+// — pedido explícito del usuario: "si no tiene cancelaciones por favor no lo muestres en la cuenta de
+// cobro". El ítem 1 (Entrenamiento) siempre se muestra, sea cual sea la cantidad, porque es el
+// concepto principal de la cuenta.
+function itemsVisibles(inv){
+  return inv.items.filter(it => it.n===1 || it.cant>0);
+}
+
 function invoicePage1HTML(inv){
   const admin = USERS.find(u=>u.rol==='admin');
   return `
@@ -2665,7 +2673,7 @@ function invoicePage1HTML(inv){
         <th style="text-align:center;">ITEM</th><th style="text-align:center;">CANTIDAD</th><th>DESCRIPCIÓN</th><th style="text-align:right;">VALOR UND</th><th style="text-align:right;">VALOR TOTAL</th>
       </tr></thead>
       <tbody>
-        ${inv.items.map((it,i)=>`<tr style="background:${i%2? '#f7f9fc':'#fff'};">
+        ${itemsVisibles(inv).map((it,i)=>`<tr style="background:${i%2? '#f7f9fc':'#fff'};">
           <td style="text-align:center;">${it.n}</td><td style="text-align:center;">${it.cant}</td><td>${it.desc}</td>
           <td style="text-align:right;">${money(it.unit)}</td><td style="text-align:right;">${it.total? money(it.total):'-'}</td>
         </tr>`).join('')}
@@ -2678,19 +2686,20 @@ function invoicePage1HTML(inv){
     </div>
 
     <div style="margin-top:26px;background:#1e293b;color:#fff;padding:7px 0;text-align:center;font-weight:700;font-style:italic;font-size:12px;letter-spacing:.05em;">DETALLE</div>
-    <table style="font-size:11px;margin-top:6px;">
+    <table style="font-size:11px;margin-top:0;">
+      <colgroup><col style="width:5%"><col style="width:11%"><col style="width:16%"><col style="width:53%"><col style="width:15%"></colgroup>
       <thead><tr style="color:#475569;">
-        <th>#</th><th>Fecha</th><th>Profesor</th><th>Detalle</th><th style="text-align:right;">Costo</th>
+        <th style="padding:5px 6px;">#</th><th style="padding:5px 6px;">Fecha</th><th style="padding:5px 6px;">Profesor</th><th style="padding:5px 6px;">Detalle</th><th style="text-align:right;padding:5px 6px;">Costo</th>
       </tr></thead>
       <tbody>
         ${inv.detalle.map((d,i)=>`<tr style="background:${i%2? '#f7f9fc':'#fff'};">
-          <td>${i+1}</td><td>${fmtFechaCorta(d.fecha)}</td><td>${d.profesor}</td>
-          <td>${d.texto}${d.salud?`<div style="font-size:9px;color:#64748b;margin-top:2px;">${d.salud}</div>`:''}</td>
-          <td style="text-align:right;">${money(d.costo)}</td>
+          <td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${i+1}</td><td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${fmtFechaCorta(d.fecha)}</td><td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${d.profesor}</td>
+          <td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${d.texto}${d.salud?`<div style="font-size:9px;color:#64748b;margin-top:1px;line-height:1.25;">${d.salud}</div>`:''}</td>
+          <td style="text-align:right;padding:4px 6px;vertical-align:top;line-height:1.3;">${money(d.costo)}</td>
         </tr>`).join('')}
       </tbody>
       <tfoot><tr style="background:#eaf1fc;">
-        <td colspan="3" style="font-weight:700;color:#1e293b;">PROMEDIO</td><td style="font-weight:700;text-align:right;color:#1e293b;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;">${money(inv.total)}</td>
+        <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;">PROMEDIO</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
       </tr></tfoot>
     </table>
 
@@ -2770,18 +2779,198 @@ function nombreArchivoCuenta(inv){
   return `${mesCapitalizado}_${inv.cliente.nombre.replace(/\s+/g,'_')}.pdf`;
 }
 
+// ---- Generación paginada del PDF de la cuenta de cobro ----
+// Hojas de 21x28 cm (pedido explícito del usuario, en vez del A4 estándar de 21x29.7cm). Si el
+// detalle de sesiones no cabe completo en la primera hoja, continúa en las siguientes SIN cortar
+// ninguna fila a la mitad — cada fila se mide primero y solo se pasa de hoja completa.
+const PT_PER_CM = 72/2.54;
+const INVOICE_PAGE_W_PT = 21*PT_PER_CM;   // 595.28pt
+const INVOICE_PAGE_H_PT = 28*PT_PER_CM;   // 793.70pt
+const INVOICE_RENDER_W_PX = 900;          // ancho fijo (en px) de los bloques que se capturan a imagen
+const INVOICE_PT_PER_PX = INVOICE_PAGE_W_PT / INVOICE_RENDER_W_PX;
+const INVOICE_BOTTOM_MARGIN_PT = 26;      // margen inferior reservado en cada hoja
+
+const DETALLE_COLGROUP = `<colgroup><col style="width:5%"><col style="width:11%"><col style="width:16%"><col style="width:53%"><col style="width:15%"></colgroup>`;
+function detalleTheadRowHTML(){
+  return `<tr style="color:#475569;">
+    <th style="padding:5px 6px;">#</th><th style="padding:5px 6px;">Fecha</th><th style="padding:5px 6px;">Profesor</th><th style="padding:5px 6px;">Detalle</th><th style="text-align:right;padding:5px 6px;">Costo</th>
+  </tr>`;
+}
+function detalleRowHTML(d,i){
+  return `<tr style="background:${i%2? '#f7f9fc':'#fff'};">
+    <td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${i+1}</td><td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${fmtFechaCorta(d.fecha)}</td><td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${d.profesor}</td>
+    <td style="padding:4px 6px;vertical-align:top;line-height:1.3;">${d.texto}${d.salud?`<div style="font-size:9px;color:#64748b;margin-top:1px;line-height:1.25;">${d.salud}</div>`:''}</td>
+    <td style="text-align:right;padding:4px 6px;vertical-align:top;line-height:1.3;">${money(d.costo)}</td>
+  </tr>`;
+}
+
+// Bloque superior de la hoja 1: datos del cliente/administrador + tabla de ítems + total. Sin padding
+// inferior porque el bloque "DETALLE" continúa justo debajo, sin salto.
+function invoiceHeaderBlockHTML(inv){
+  const admin = USERS.find(u=>u.rol==='admin');
+  return `
+  <div style="background:#fff;padding:40px 44px 0 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;font-size:12.5px;">
+      <div>Bogotá D.C&nbsp;&nbsp;&nbsp;${fmtFechaLarga(inv.fecha)}</div>
+      <div><b>Cuenta</b>&nbsp;&nbsp;${inv.numero}</div>
+    </div>
+    <div style="text-align:center;margin-top:18px;">
+      <div style="font-weight:700;font-size:15px;">${inv.cliente.nombre}</div>
+      <div style="font-size:12px;">CC: ${inv.cliente.cc}</div>
+      <div style="font-size:11.5px;letter-spacing:.1em;margin:14px 0 6px;">DEBE A:</div>
+      <div style="font-weight:700;font-size:15px;">${admin.nombre}</div>
+      <div style="font-size:12px;">CC: ${admin.cc}</div>
+    </div>
+    <table style="margin-top:22px;font-size:12px;">
+      <thead><tr style="background:#eaf1fc;color:#1e293b;">
+        <th style="text-align:center;">ITEM</th><th style="text-align:center;">CANTIDAD</th><th>DESCRIPCIÓN</th><th style="text-align:right;">VALOR UND</th><th style="text-align:right;">VALOR TOTAL</th>
+      </tr></thead>
+      <tbody>
+        ${itemsVisibles(inv).map((it,i)=>`<tr style="background:${i%2? '#f7f9fc':'#fff'};">
+          <td style="text-align:center;">${it.n}</td><td style="text-align:center;">${it.cant}</td><td>${it.desc}</td>
+          <td style="text-align:right;">${money(it.unit)}</td><td style="text-align:right;">${it.total? money(it.total):'-'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="display:flex;justify-content:flex-end;margin-top:18px;">
+      <div style="border:1px solid #cbd5e1;background:#eaf1fc;border-radius:8px;padding:12px 22px;display:flex;gap:26px;align-items:center;">
+        <b style="font-size:13px;color:#1e293b;">TOTAL</b><b style="font-size:15px;color:#0f172a;">${money(inv.total)}</b>
+      </div>
+    </div>
+    <div style="margin-top:26px;background:#1e293b;color:#fff;padding:7px 0;text-align:center;font-weight:700;font-style:italic;font-size:12px;letter-spacing:.05em;">DETALLE</div>
+    <table style="font-size:11px;margin-top:0;">${DETALLE_COLGROUP}<thead>${detalleTheadRowHTML()}</thead></table>
+  </div>`;
+}
+
+// Encabezado repetido al inicio de cada hoja de continuación (2ª, 3ª... si el detalle no cupo en la 1ª).
+function invoiceContinuationTheadHTML(clienteNombre){
+  return `
+  <div style="background:#fff;padding:32px 44px 0 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    <div style="font-size:11px;color:#64748b;margin-bottom:6px;">Detalle (continuación) — ${clienteNombre}</div>
+    <table style="font-size:11px;margin-top:0;">${DETALLE_COLGROUP}<thead>${detalleTheadRowHTML()}</thead></table>
+  </div>`;
+}
+
+// Un grupo consecutivo de filas del detalle, ya sabiendo que caben completas en el espacio disponible.
+function invoiceRowsGroupHTML(rows, startIndex){
+  return `
+  <div style="background:#fff;padding:0 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    <table style="font-size:11px;">${DETALLE_COLGROUP}<tbody>
+      ${rows.map((d,k)=>detalleRowHTML(d, startIndex+k)).join('')}
+    </tbody></table>
+  </div>`;
+}
+
+// Fila de "PROMEDIO / TOTAL" + medios de pago + firma, al final del detalle.
+function invoiceFooterBlockHTML(inv){
+  const admin = USERS.find(u=>u.rol==='admin');
+  return `
+  <div style="background:#fff;padding:0 44px 40px 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    <table style="font-size:11px;">${DETALLE_COLGROUP}<tfoot><tr style="background:#eaf1fc;">
+      <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;">PROMEDIO</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
+    </tr></tfoot></table>
+    <div style="margin-top:24px;font-size:11.5px;line-height:1.7;color:#334155;">
+      <b style="color:#1e293b;">Medios de pago:</b><br>
+      Cuenta de ahorros Davivienda: 462300040047<br>
+      Nequi y Daviplata: 3209010722
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px;">
+      <div>${logoImg('black', 60)}</div>
+      <div style="text-align:right;font-size:11.5px;line-height:1.6;color:#334155;">
+        Atentamente: <b style="color:#0f172a;">${admin.nombre}</b><br>
+        C.c ${admin.cc}<br>
+        Cel. ${admin.tel}
+      </div>
+    </div>
+  </div>`;
+}
+
+// Renderiza un fragmento de HTML (ya con su propio width fijo) a un canvas, fuera de pantalla, y
+// devuelve tanto el dataURL como su altura ya convertida a puntos de la hoja de 21x28cm.
+async function _renderBlockToImage(html){
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-99999px;top:0;';
+  holder.innerHTML = html;
+  document.body.appendChild(holder);
+  const el = holder.firstElementChild;
+  const canvas = await html2canvas(el, {scale:2, backgroundColor:'#ffffff'});
+  document.body.removeChild(holder);
+  const imgH_pt = (canvas.height * INVOICE_PAGE_W_PT) / canvas.width;
+  return { dataUrl: canvas.toDataURL('image/png'), heightPt: imgH_pt };
+}
+
+// Mide (sin capturar imagen, solo layout real del navegador) la altura en px de cada fila del
+// detalle, para poder agruparlas en páginas sin cortar ninguna a la mitad.
+function _measureDetalleRowHeightsPx(detalle){
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-99999px;top:0;';
+  holder.innerHTML = `<div style="width:${INVOICE_RENDER_W_PX}px;padding:0 44px;box-sizing:border-box;font-family:'Poppins',sans-serif;">
+    <table style="font-size:11px;">${DETALLE_COLGROUP}<tbody>${detalle.map((d,i)=>detalleRowHTML(d,i)).join('')}</tbody></table>
+  </div>`;
+  document.body.appendChild(holder);
+  const rows = holder.querySelectorAll('tbody tr');
+  const heights = Array.from(rows).map(tr=>tr.getBoundingClientRect().height);
+  document.body.removeChild(holder);
+  return heights;
+}
+
 async function buildInvoicePDFBlob(inv){
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF('p','pt','a4');
-  const pageW = pdf.internal.pageSize.getWidth();
-  const els = [document.getElementById('invoicePage1'), document.getElementById('invoicePage2')];
-  for(let i=0;i<els.length;i++){
-    const canvas = await html2canvas(els[i], {scale:2, backgroundColor:'#ffffff'});
-    const imgData = canvas.toDataURL('image/png');
-    const imgH = (canvas.height * pageW) / canvas.width;
-    if(i>0) pdf.addPage();
-    pdf.addImage(imgData, 'PNG', 0, 0, pageW, imgH);
+  const pdf = new jsPDF('p','pt',[INVOICE_PAGE_W_PT, INVOICE_PAGE_H_PT]);
+
+  // 1) Bloque superior de la hoja 1 (encabezado + ítems + total + banner "DETALLE" + encabezado de columnas).
+  const header = await _renderBlockToImage(invoiceHeaderBlockHTML(inv));
+  let cursorY = header.heightPt;
+  let remaining = INVOICE_PAGE_H_PT - cursorY - INVOICE_BOTTOM_MARGIN_PT;
+  pdf.addImage(header.dataUrl, 'PNG', 0, 0, INVOICE_PAGE_W_PT, header.heightPt);
+
+  // 2) Filas del detalle, agrupadas para que ninguna quede cortada entre hojas.
+  const detalle = inv.detalle;
+  if(detalle.length){
+    const heightsPx = _measureDetalleRowHeightsPx(detalle);
+    const heightsPt = heightsPx.map(h => h*INVOICE_PT_PER_PX);
+    let groupStart = 0, groupHeight = 0;
+    for(let i=0;i<detalle.length;i++){
+      const rh = heightsPt[i];
+      if(groupHeight + rh > remaining && i>groupStart){
+        // Cierra el grupo actual (no cabe otra fila más) y lo dibuja en la hoja actual.
+        const group = await _renderBlockToImage(invoiceRowsGroupHTML(detalle.slice(groupStart,i), groupStart));
+        pdf.addImage(group.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, group.heightPt);
+        cursorY += group.heightPt;
+        // Nueva hoja con el encabezado de columnas repetido.
+        pdf.addPage();
+        const cont = await _renderBlockToImage(invoiceContinuationTheadHTML(inv.cliente.nombre));
+        pdf.addImage(cont.dataUrl, 'PNG', 0, 0, INVOICE_PAGE_W_PT, cont.heightPt);
+        cursorY = cont.heightPt;
+        remaining = INVOICE_PAGE_H_PT - cursorY - INVOICE_BOTTOM_MARGIN_PT;
+        groupStart = i; groupHeight = 0;
+      }
+      groupHeight += rh;
+    }
+    // Último grupo pendiente.
+    const lastGroup = await _renderBlockToImage(invoiceRowsGroupHTML(detalle.slice(groupStart), groupStart));
+    pdf.addImage(lastGroup.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, lastGroup.heightPt);
+    cursorY += lastGroup.heightPt;
+    remaining = INVOICE_PAGE_H_PT - cursorY - INVOICE_BOTTOM_MARGIN_PT;
   }
+
+  // 3) Pie (total/promedio + medios de pago + firma) — en la misma hoja si cabe, si no en una nueva.
+  const footer = await _renderBlockToImage(invoiceFooterBlockHTML(inv));
+  if(footer.heightPt > remaining){
+    pdf.addPage();
+    cursorY = 0;
+  }
+  pdf.addImage(footer.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, footer.heightPt);
+
+  // 4) Hoja fija de normas de cancelación, siempre al final.
+  const normasEl = document.getElementById('invoicePage2');
+  if(normasEl){
+    const normasCanvas = await html2canvas(normasEl, {scale:2, backgroundColor:'#ffffff'});
+    const normasH = (normasCanvas.height * INVOICE_PAGE_W_PT) / normasCanvas.width;
+    pdf.addPage();
+    pdf.addImage(normasCanvas.toDataURL('image/png'), 'PNG', 0, 0, INVOICE_PAGE_W_PT, normasH);
+  }
+
   const filename = nombreArchivoCuenta(inv);
   return { blob: pdf.output('blob'), filename };
 }
