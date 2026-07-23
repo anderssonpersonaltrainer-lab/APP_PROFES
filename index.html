@@ -892,17 +892,17 @@ function renderAdminModeToggleUI(){
 }
 
 // Ya no hay ningún botón que darle clic: la sincronización con Drive corre sola para todos los
-// roles (ver GAS_WEBAPP_URL más arriba). Esto solo muestra un estado informativo — útil sobre todo
-// para que el administrador confirme, la primera vez, que ya terminó de pegar la URL del Apps
-// Script (mientras GAS_WEBAPP_URL siga siendo el placeholder, se lo advierte aquí).
+// roles (ver GAS_WEBAPP_URL más arriba), completamente en segundo plano — no se le muestra a nadie
+// ningún aviso de "activa" cuando todo funciona bien (el usuario pidió el 24/07/2026 quitar ese
+// texto: "creo que ya le puedes quitar ese texto de sincronizacion activa que sea trasbambalinas").
+// Solo se le sigue avisando al administrador si TODAVÍA falta terminar la configuración (URL en
+// placeholder) — ese caso sí necesita que alguien haga algo, así que se mantiene visible.
 function renderSyncStatusUI(){
   const wraps = document.querySelectorAll('.drive-connect-wrap');
   if(!wraps.length) return;
   wraps.forEach(wrap=>{
-    wrap.style.display = 'flex';
-    if(gasConfigured()){
-      wrap.innerHTML = `<span class="section-sub" style="font-size:11.5px;display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;display:inline-flex;color:var(--teal-dark, #0d9488);">${ICONS.check}</span>Sincronización automática con Drive activa</span>`;
-    } else if(STATE.user && STATE.user.rol==='admin'){
+    if(!gasConfigured() && STATE.user && STATE.user.rol==='admin'){
+      wrap.style.display = 'flex';
       wrap.innerHTML = `<span class="section-sub" style="font-size:11.5px;color:var(--danger, #dc2626);">Falta terminar de configurar la sincronización automática con Drive (pídele a Claude que te guíe).</span>`;
     } else {
       wrap.style.display = 'none';
