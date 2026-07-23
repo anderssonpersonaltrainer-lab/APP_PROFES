@@ -51,7 +51,13 @@
   --ff-script:'Yellowtail',cursive;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;}
+/* overflow-x:hidden en html (no solo en body) es necesario para que los elementos position:fixed
+   ocultos fuera de pantalla con transform (ej. .drawer de notificaciones) no infl en el ancho de
+   scroll de la página — sin esto, el navegador móvil detecta contenido "más ancho" que la pantalla
+   y termina renderizando TODA la app reducida/zoom-out, con una franja en blanco a la derecha
+   (bug real reportado por el usuario 23/07/2026, confirmado con Playwright: window.innerWidth
+   pasaba de 393px a 637px por el drawer cerrado). */
+html,body{height:100%;overflow-x:hidden;}
 body{
   font-family:var(--ff-body);
   background:var(--paper);
@@ -847,8 +853,10 @@ function connectGoogleDrive(silent){
           const cliente = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
           if(cliente) pullRegistrosForCliente(cliente).catch(e=>console.warn('Sync inicial de Drive falló:', e));
           syncScheduleFromDrive().catch(e=>console.warn('Sync inicial de horario falló:', e));
+          syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
           _scheduleDriveTokenRenewal();
           _schedulePeriodicScheduleSync();
+          _schedulePeriodicClienteDatosSync();
         } else if(!silent){
           toast('No se pudo conectar Google Drive', 'error');
         }
@@ -1121,21 +1129,26 @@ function _schedulePeriodicScheduleSync(){
    El usuario aclaró: "ellos no deben estar conectandose a google drive... para eso hay un
    administrador... debe existir la forma que automaticamente se actualicen [los datos] sin
    intervención de ellos." Solución: SOLO el administrador conecta su cuenta de Google (como ya
-   funcionaba). Cada vez que su navegador sincroniza el horario desde Drive (syncScheduleFromDrive,
-   arriba), también PUBLICA el resultado en un archivo de caché público en Drive
-   (APP_DATA_CACHE_FILE_ID, "anyone with link puede leer"). Daniel y Karen (y el propio
-   administrador en otros dispositivos) simplemente LEEN ese archivo con una API Key de solo
-   lectura (GOOGLE_API_KEY) — sin ningún login ni botón de "Conectar" de su parte. Esto corre solo,
-   en cada apertura de la app y cada pocos minutos, sin que nadie tenga que pedirlo.
-   ⚠️ Alcance actual: por ahora esta caché solo cubre el HORARIO. Los precios y la Anamnesis
-   completa de cada cliente viven en archivos .xlsm individuales por cliente (no en una sola hoja
-   de Google Sheets como el horario), lo cual requiere un parser de Excel binario en el navegador —
-   es una pieza más grande, todavía no construida. Documentado como pendiente explícito más abajo
-   (no se inventa que ya está resuelto). */
+   funcionaba). Cada vez que su navegador sincroniza el horario y los datos de clientes desde Drive
+   (syncScheduleFromDrive y syncClienteDatosFromDrive, ver ambas más abajo), también PUBLICA el
+   resultado en un archivo de caché público en Drive (APP_DATA_CACHE_FILE_ID, "anyone with link
+   puede leer"). Daniel y Karen (y el propio administrador en otros dispositivos) simplemente LEEN
+   ese archivo con una API Key de solo lectura (GOOGLE_API_KEY) — sin ningún login ni botón de
+   "Conectar" de su parte. Esto corre solo, en cada apertura de la app y cada pocos minutos, sin que
+   nadie tenga que pedirlo.
+   Cobertura (23/07/2026): HORARIO + ANAMNESIS (texto completo) + TARIFA de cada cliente, todo
+   extraído automáticamente de sus archivos individuales de Drive — ver
+   "SINCRONIZACIÓN AUTOMÁTICA DE ANAMNESIS Y TARIFAS DESDE DRIVE" más abajo para el detalle completo,
+   incluyendo la validación de seguridad que evita propagar datos de otra persona. */
 async function publishAppDataCache(){
   if(!driveConnected || !(STATE.user && STATE.user.rol==='admin')) return;
   try{
-    const payload = { schedule: SCHEDULE, updatedAt: new Date().toISOString() };
+    const anamnesis = {}, tarifas = {};
+    CLIENTES.forEach(c=>{
+      if(c.anamnesisCompleta) anamnesis[c.id] = c.anamnesisCompleta;
+      if(c.tarifa!=null) tarifas[c.id] = c.tarifa;
+    });
+    const payload = { schedule: SCHEDULE, anamnesis, tarifas, updatedAt: new Date().toISOString() };
     await driveApiFetch(`https://www.googleapis.com/upload/drive/v3/files/${APP_DATA_CACHE_FILE_ID}?uploadType=media`, {
       method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload),
     });
@@ -1156,14 +1169,29 @@ async function fetchAppDataCache(){
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${APP_DATA_CACHE_FILE_ID}?alt=media&key=${GOOGLE_API_KEY}`);
     if(!res.ok) return;
     const data = await res.json();
+    let cambios = false;
     if(Array.isArray(data.schedule) && data.schedule.length>=10){
       SCHEDULE = data.schedule;
       SCHEDULE.forEach(s=>{ s.fecha = dateForWeekday(s.dia); });
+      cambios = true;
+    }
+    // Aplica anamnesis/tarifas ya validadas por el administrador (la validación de nombre/CC ocurre
+    // en syncClienteDatosFromDrive, en el navegador del administrador, ANTES de publicarse aquí —
+    // este dispositivo solo aplica lo que ya llegó limpio, sin volver a descargar los Excel).
+    if(data.anamnesis && typeof data.anamnesis==='object'){
+      CLIENTES.forEach(c=>{ if(data.anamnesis[c.id]) c.anamnesisCompleta = data.anamnesis[c.id]; });
+      cambios = true;
+    }
+    if(data.tarifas && typeof data.tarifas==='object'){
+      CLIENTES.forEach(c=>{ if(typeof data.tarifas[c.id]==='number') c.tarifa = data.tarifas[c.id]; });
+      cambios = true;
+    }
+    if(cambios){
       saveState();
       if(document.getElementById('view-horario')) renderHorario();
     }
   }catch(e){
-    console.warn('fetchAppDataCache falló (se conserva el horario ya cargado):', e);
+    console.warn('fetchAppDataCache falló (se conserva la información ya cargada):', e);
   }
 }
 let _cacheFetchTimer = null;
@@ -1171,6 +1199,171 @@ function _scheduleCacheFetch(){
   if(_cacheFetchTimer) clearInterval(_cacheFetchTimer);
   fetchAppDataCache();
   _cacheFetchTimer = setInterval(fetchAppDataCache, 10*60*1000); // 10 min, para TODOS los roles
+}
+
+/* ---------- SINCRONIZACIÓN AUTOMÁTICA DE ANAMNESIS Y TARIFAS DESDE DRIVE (23/07/2026) ----------
+   El usuario insistió explícitamente en que esto quede automático también: "quiero que quede
+   automatico todo lo que falta para el anamnesis". A diferencia del horario (una sola hoja de
+   Google Sheets), cada cliente tiene su propia Anamnesis y tarifa dentro de SU PROPIO archivo Excel
+   individual en Drive (.xlsm/.xlsx real, no Google Sheets nativo) — por eso hace falta descargarlo
+   como binario y leerlo con SheetJS (librería `xlsx.full.min.js`, ya cargada arriba en <head> para
+   la exportación de reportes) en vez de la API de Sheets.
+   Solo corre en el navegador del ADMINISTRADOR (igual que el horario) y publica el resultado en la
+   misma caché pública — Daniel y Karen nunca descargan ni abren estos Excel.
+   REGLA DE SEGURIDAD (no negociable, ver contexto del proyecto): ya se detectaron casos reales en
+   Drive donde la pestaña "Anamnesis" de un cliente contiene, por error, el texto de OTRA persona
+   (ej. el Excel de "Victoria Hernandez"/Sebastian Garay trae la Anamnesis de Patricia Valencia,
+   confirmado 23/07/2026). Por eso, antes de aceptar un texto de Anamnesis extraído de Drive, se
+   verifica que mencione el nombre o la cédula del propio cliente — si no coincide, NO se aplica
+   (se deja lo que ya había) y se registra una advertencia para que el administrador lo revise
+   directamente en Drive. Nunca se sobrescribe con datos que puedan ser de otra persona. */
+async function driveApiFetchBinary(url){
+  if(!driveConnected) return null;
+  try{
+    const res = await fetch(url, { headers:{ 'Authorization': `Bearer ${driveAccessToken}` } });
+    if(!res.ok) return null;
+    return await res.arrayBuffer();
+  }catch(e){
+    console.warn('driveApiFetchBinary falló:', e);
+    return null;
+  }
+}
+// Busca el Excel individual de "clases" del cliente dentro de su carpeta de Drive (no dentro de las
+// subcarpetas de año). El nombre del archivo varía entre clientes ("Clases_...", "Master ...", etc.)
+// así que se busca por tipo de archivo (Excel real) en vez de por nombre.
+async function findClienteExcelFileId(cliente){
+  if(!driveConnected || !cliente.drive) return null;
+  try{
+    const q = encodeURIComponent(`'${cliente.drive}' in parents and (mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.ms-excel.sheet.macroEnabled.12' or mimeType='application/vnd.ms-excel') and trashed=false`);
+    const listRes = await driveApiFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`, { method:'GET' });
+    if(listRes && Array.isArray(listRes.files) && listRes.files.length) return listRes.files[0].id;
+    return null;
+  }catch(e){
+    console.warn(`findClienteExcelFileId falló para ${cliente.nombre}:`, e);
+    return null;
+  }
+}
+// Convierte "$ 55,200 " / "55200" / "" en un número (o null si no hay un valor utilizable).
+function parseCostoValue(text){
+  if(text===undefined || text===null) return null;
+  const limpio = String(text).replace(/[^0-9.,]/g,'').replace(/\./g,'').replace(',','.');
+  if(!limpio) return null;
+  const n = Math.round(parseFloat(limpio));
+  return (isFinite(n) && n>0) ? n : null;
+}
+// Localiza, dentro del libro, la hoja del "log de clases" (siempre la primera hoja del Excel, con
+// encabezado "INFORMACIÓN DE CLASES" y columnas Fecha/Profesor/Detalle/Costo) y extrae la tarifa
+// realmente cobrada: el último valor de "Costo" con dato (las filas de sesiones futuras están
+// vacías), que es más confiable que la lista de precios "Listas desplegables" — esa lista trae
+// SIEMPRE ambos valores (presencial y online) rellenados aunque el cliente solo use uno de los dos.
+function extractTarifaFromWorkbook(wb){
+  for(const sheetName of wb.SheetNames){
+    const ws = wb.Sheets[sheetName];
+    if(!ws) continue;
+    const grid = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
+    let headerRow = -1, colFecha = -1, colCosto = -1;
+    for(let r=0; r<grid.length; r++){
+      const row = grid[r];
+      const iFecha = row.findIndex(v=>/^fecha$/i.test((v||'').toString().trim()));
+      const iCosto = row.findIndex(v=>/^costo$/i.test((v||'').toString().trim()));
+      if(iFecha>=0 && iCosto>=0){ headerRow=r; colFecha=iFecha; colCosto=iCosto; break; }
+    }
+    if(headerRow<0) continue; // esta hoja no es el log de clases — se prueba con la siguiente
+    let ultimaTarifa = null;
+    for(let r=headerRow+1; r<grid.length; r++){
+      const row = grid[r];
+      // Se exige que la celda de Fecha tenga al menos un dígito (fecha real) — evita que la fila de
+      // resumen "PROMEDIO/TOTAL" al final de la tabla (que reutiliza esa misma columna para su
+      // etiqueta de texto) se confunda con una fila de sesión real y arrastre el total en vez de la tarifa.
+      if(!row[colFecha] || !/\d/.test(String(row[colFecha]))) continue; // fila de sesión futura sin usar todavía, o fila de resumen
+
+      const v = parseCostoValue(row[colCosto]);
+      if(v!==null) ultimaTarifa = v; // se queda con la última fila con dato (las filas están en orden cronológico)
+    }
+    return ultimaTarifa; // encontramos el log de clases (con o sin tarifa utilizable) — no seguir buscando en otras hojas
+  }
+  return null;
+}
+// Extrae el texto completo (literal) de la pestaña "Anamnesis", si existe. Junta todas las celdas
+// con contenido (normalmente es una sola celda, pero por seguridad no se asume eso).
+function extractAnamnesisFromWorkbook(wb){
+  const sheetName = wb.SheetNames.find(n=>/^anamnesis$/i.test(n.trim()));
+  if(!sheetName) return null;
+  const ws = wb.Sheets[sheetName];
+  if(!ws) return null;
+  const grid = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
+  const textos = [];
+  grid.forEach(row=>row.forEach(v=>{ const t=(v||'').toString().trim(); if(t) textos.push(t); }));
+  const texto = textos.join('\n\n').trim();
+  return texto || null;
+}
+// Verifica que el texto de Anamnesis extraído realmente pertenezca a este cliente, comparando por
+// cédula (más confiable) y, si no hay coincidencia de cédula, por nombre. Ver la nota de seguridad
+// arriba — este chequeo es lo que evita aplicar automáticamente el error real ya encontrado en Drive
+// (Anamnesis de Sebastian Garay con el texto de Patricia Valencia).
+function anamnesisPerteneceACliente(texto, cliente){
+  if(!texto) return false;
+  const textoNorm = normalizeNombre(texto);
+  const ccDigits = (cliente.cc||'').replace(/\D/g,'');
+  if(ccDigits && ccDigits.length>=6){
+    const textoDigits = texto.replace(/\D/g,'');
+    if(textoDigits.includes(ccDigits)) return true;
+  }
+  const nombreTokens = normalizeNombre(cliente.nombre).split(' ').filter(t=>t.length>=4);
+  if(nombreTokens.length && nombreTokens.every(t=>textoNorm.includes(t))) return true; // nombre completo coincide
+  if(nombreTokens.length && textoNorm.includes(nombreTokens[0])) return true; // al menos el primer nombre, como mínimo
+  return false;
+}
+let _lastClienteDatosSyncAt = null;
+async function syncClienteDatosFromDrive(){
+  if(!driveConnected || !(STATE.user && STATE.user.rol==='admin')) return;
+  const advertencias = [];
+  let actualizados = 0;
+  for(const cliente of CLIENTES){
+    if(!cliente.drive) continue;
+    try{
+      const fileId = await findClienteExcelFileId(cliente);
+      if(!fileId) continue; // sin Excel individual en su carpeta — se deja tal cual (no se inventa)
+      const buffer = await driveApiFetchBinary(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+      if(!buffer) continue;
+      const wb = XLSX.read(buffer, {type:'array'});
+      let cambioEste = false;
+      const tarifaNueva = extractTarifaFromWorkbook(wb);
+      // Rango razonable de tarifas reales del negocio — evita aplicar un valor claramente mal leído
+      // (celda desalineada, columna vacía interpretada como 0, etc.) sin bloquear cambios de precio genuinos.
+      if(tarifaNueva!==null && tarifaNueva>=10000 && tarifaNueva<=250000 && tarifaNueva!==cliente.tarifa){
+        advertencias.push(`${cliente.nombre}: tarifa actualizada de Drive $${cliente.tarifa||0} → $${tarifaNueva}`);
+        cliente.tarifa = tarifaNueva;
+        cambioEste = true;
+      }
+      const anamnesisNueva = extractAnamnesisFromWorkbook(wb);
+      if(anamnesisNueva){
+        if(anamnesisPerteneceACliente(anamnesisNueva, cliente)){
+          if(anamnesisNueva !== cliente.anamnesisCompleta){
+            cliente.anamnesisCompleta = anamnesisNueva;
+            cambioEste = true;
+          }
+        } else {
+          advertencias.push(`${cliente.nombre}: la pestaña "Anamnesis" de su Excel en Drive NO menciona su nombre ni su cédula — parece pertenecer a otra persona, no se actualizó automáticamente. Revisar directamente en Drive.`);
+        }
+      }
+      if(cambioEste) actualizados++;
+    }catch(e){
+      console.warn(`syncClienteDatosFromDrive falló para ${cliente.nombre} (se conserva su dato actual):`, e);
+    }
+  }
+  _lastClienteDatosSyncAt = new Date().toISOString();
+  if(advertencias.length) console.warn('syncClienteDatosFromDrive — revisar:', advertencias);
+  if(actualizados>0) saveState();
+  await publishAppDataCache().catch(e=>console.warn('publishAppDataCache falló tras sync de clientes:', e));
+  return {actualizados, advertencias};
+}
+// Los Excel individuales cambian con mucha menos frecuencia que el horario semanal, así que se
+// revisan cada 6 horas (no cada 15 min) para no descargar innecesariamente ~40 archivos seguido.
+let _clienteDatosSyncTimer = null;
+function _schedulePeriodicClienteDatosSync(){
+  if(_clienteDatosSyncTimer) clearInterval(_clienteDatosSyncTimer);
+  _clienteDatosSyncTimer = setInterval(()=>{ if(driveConnected) syncClienteDatosFromDrive().catch(e=>console.warn('Sync periódico de clientes falló:', e)); }, 6*60*60*1000);
 }
 
 async function driveApiFetch(url, options){
@@ -2430,9 +2623,10 @@ function renderTablaRegistro(){
   const isAdmin = STATE.user.rol==='admin';
   const rows = REGISTROS.filter(r=>r.clienteId===selectedClienteRegistro).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const tbl = document.getElementById('tablaRegistro');
-  const naTag = `<span style="color:var(--ink-fade);font-style:italic;">No aplica</span>`;
+  // 23/07/2026: se quitó la distinción "No aplica" — un campo vacío (nunca se tomó el dato) y un
+  // campo marcado "No aplica" en registros antiguos se muestran igual, con un simple guion.
   const dash = `<span style="color:var(--ink-fade);">—</span>`;
-  const cellFor = (naFlag,v) => naFlag ? naTag : (v===undefined||v===null||v==='') ? dash : v;
+  const cellFor = v => (v===undefined||v===null||v==='') ? dash : v;
   tbl.innerHTML = `
     <thead>
       <tr>
@@ -2450,19 +2644,18 @@ function renderTablaRegistro(){
     <tbody>
       ${rows.length ? rows.map((r,i)=>{
         const abierto = r.estado!=='cerrado';
-        const sinDatos = r.preSisNA && r.preDiaNA && r.prePpmNA && r.preSpo2NA && r.postSisNA && r.postDiaNA && r.postPpmNA && r.postSpo2NA;
-        const estadoLabel = sinDatos ? 'Sin datos de salud' : (abierto ? 'Falta cierre' : 'Completo');
-        const estadoStyle = sinDatos ? 'background:var(--line);color:var(--ink-fade);' : (abierto ? 'background:#fef3c7;color:#92400e;' : 'background:var(--teal-light);color:var(--teal-dark);');
+        const estadoLabel = abierto ? 'Falta cierre' : 'Completo';
+        const estadoStyle = abierto ? 'background:#fef3c7;color:#92400e;' : 'background:var(--teal-light);color:var(--teal-dark);';
         return `
       <tr>
         <td>${i+1}</td><td>${fmtFechaCorta(r.fecha)}</td><td style="white-space:nowrap;">${profesorNombre(r.profesorId)}</td>
         <td><span class="pill ${r.modalidad==='Virtual'?'pill-accent':'pill-teal'}" style="font-size:10.5px;">${r.modalidad||'Presencial'}</span></td>
         <td><span class="pill" style="font-size:10.5px;${estadoStyle}">${estadoLabel}</span></td>
-        <td>${cellFor(r.preSisNA,r.preSis)}</td><td>${cellFor(r.preDiaNA,r.preDia)}</td><td>${cellFor(r.prePpmNA,r.prePpm)}</td><td>${r.preSpo2NA?naTag:(r.preSpo2!=null&&r.preSpo2!==''?r.preSpo2+'%':dash)}</td>
-        <td>${cellFor(r.postSisNA,r.postSis)}</td><td>${cellFor(r.postDiaNA,r.postDia)}</td><td>${cellFor(r.postPpmNA,r.postPpm)}</td><td>${r.postSpo2NA?naTag:(r.postSpo2!=null&&r.postSpo2!==''?r.postSpo2+'%':dash)}</td>
+        <td>${cellFor(r.preSis)}</td><td>${cellFor(r.preDia)}</td><td>${cellFor(r.prePpm)}</td><td>${r.preSpo2!=null&&r.preSpo2!==''?r.preSpo2+'%':dash}</td>
+        <td>${cellFor(r.postSis)}</td><td>${cellFor(r.postDia)}</td><td>${cellFor(r.postPpm)}</td><td>${r.postSpo2!=null&&r.postSpo2!==''?r.postSpo2+'%':dash}</td>
         <td style="max-width:220px;">${r.detalle||''}${r.companeros&&r.companeros.length?`<div style="margin-top:4px;font-size:11px;color:var(--ink-fade);">👥 Sesión conjunta con: ${r.companeros.join(', ')} — cada uno tiene su propio registro individual, solo se muestra aquí para identificar la sesión compartida.</div>`:''}</td>
         <td style="white-space:nowrap;">
-          ${!isAdmin && abierto ? `<button class="btn btn-outline btn-sm" data-completar="${r.id}" style="margin-right:4px;">Completar</button>` : ''}
+          ${!isAdmin && abierto ? `<button class="btn btn-outline btn-sm" data-completar="${r.id}" style="margin-right:4px;">Clase completada</button>` : ''}
           ${isAdmin ? `<button class="btn btn-outline btn-sm" data-editar-reg="${r.id}" style="margin-right:4px;">Editar</button><button class="btn btn-outline btn-sm" data-eliminar-reg="${r.id}" style="color:var(--danger);border-color:var(--danger);">Eliminar</button>` : ''}
         </td>
       </tr>`;}).join('') : `<tr><td colspan="15" style="text-align:center;color:var(--ink-fade);padding:30px;">Sin registros aún para este cliente.</td></tr>`}
@@ -2494,16 +2687,13 @@ function ensureHistorialCompletada(clienteId, fecha, profesorId, modalidad){
 let registroCompaneros = []; // ids de clientes adicionales que tomaron la sesión conjunta (además del principal)
 let registroCompanerosSearch = '';
 
-// Genera un campo individual de salud con su propia casilla "No aplica" — permite que cada
-// dato (PA sistólica, PA diastólica, PPM, SpO2, en pre o post) se marque "no aplica" de forma
-// independiente, ya que en la práctica los datos a veces se toman de forma parcial.
+// Campo individual de salud (23/07/2026: se quitó la casilla "No aplica" por pedido del usuario —
+// ahora un campo simplemente en blanco significa "no se tomó ese dato", sin necesidad de marcarlo
+// explícitamente. Todos los campos siguen siendo 100% opcionales.
 function vitalFieldHTML(cid, field, label, placeholder){
   return `<div class="field">
     <label>${label}</label>
     <input type="number" id="r${field}_${cid}" placeholder="${placeholder}">
-    <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--ink-fade);margin-top:3px;cursor:pointer;font-weight:400;">
-      <input type="checkbox" class="field-na-check" data-na-cid="${cid}" data-na-field="${field}"> No aplica
-    </label>
   </div>`;
 }
 
@@ -2512,7 +2702,7 @@ function personaSaludBlockHTML(cid){
   return `
     <div class="card" data-persona-block="${cid}" style="padding:12px;margin-bottom:10px;border:1px solid var(--line);">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:8px;">${c.nombre}</div>
-      <div class="section-sub" style="margin-bottom:8px;">Marca "No aplica" solo en el dato puntual que no se tome — puedes registrar únicamente una parte de los datos.</div>
+      <div class="section-sub" style="margin-bottom:8px;">Todos los datos de salud son opcionales — completa lo que tengas, en blanco no hay ningún problema.</div>
       <div class="pill pill-teal" style="margin-bottom:6px;font-size:10.5px;">Al iniciar la clase</div>
       <div class="field-row">
         ${vitalFieldHTML(cid,'PreSis','PA sistólica','120')}
@@ -2531,6 +2721,10 @@ function personaSaludBlockHTML(cid){
         ${vitalFieldHTML(cid,'PostPpm','PPM','102')}
         ${vitalFieldHTML(cid,'PostSpo2','SpO2 (%)','96')}
       </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;font-weight:600;cursor:pointer;">
+        <input type="checkbox" class="persona-clase-completada" data-cc-cid="${cid}"> Clase completada
+      </label>
+      <div class="section-sub" style="margin-top:2px;">Márcalo si la clase ya terminó, tengas o no datos de cierre para registrar.</div>
     </div>`;
 }
 
@@ -2546,7 +2740,7 @@ function openAddRegistroModal(){
     </div>
     <div class="modal-body">
       <div class="section-sub" style="margin-bottom:14px;">${cliente.nombre}</div>
-      <div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">Ningún campo es obligatorio — registra lo que tengas a la mano. Si solo tomas los datos al iniciar la clase, guarda así no más: el registro quedará marcado "Falta cierre" y podrás completarlo con los datos de fin de clase más tarde desde la tabla (botón "Completar"). Si algún dato puntual no se le toma a un cliente (ej. solo le tomas la tensión pero no la saturación), marca "No aplica" en ese dato específico — no hace falta marcar todo el bloque, y de todas formas queda registrada su asistencia a la clase.</div>
+      <div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">Ningún dato de salud es obligatorio — guarda con solo los datos de inicio, con todos, o sin ninguno, no hay problema. Si aún no termina la clase, guarda así no más: el registro quedará marcado "Falta cierre" y podrás marcarla como completada más tarde desde la tabla (botón "Clase completada"). Si ya terminó, marca la casilla "Clase completada" de cada cliente antes de guardar.</div>
       <form id="regForm">
         <div class="field-row">
           <div class="field"><label>Fecha</label><input type="date" id="rFecha" value="${now}"></div>
@@ -2578,18 +2772,6 @@ function openAddRegistroModal(){
   `);
 
   document.getElementById('personasSaludContainer').insertAdjacentHTML('beforeend', personaSaludBlockHTML(selectedClienteRegistro));
-  bindPersonaNaToggle(selectedClienteRegistro);
-
-  function bindPersonaNaToggle(cid){
-    document.querySelectorAll(`[data-persona-block="${cid}"] .field-na-check`).forEach(chk=>{
-      chk.addEventListener('change', ()=>{
-        const field = chk.dataset.naField;
-        const input = document.getElementById(`r${field}_${cid}`);
-        input.disabled = chk.checked;
-        if(chk.checked) input.value = '';
-      });
-    });
-  }
 
   function renderCompaneroChips(){
     document.getElementById('companerosChips').innerHTML = registroCompaneros.map(id=>{
@@ -2618,7 +2800,6 @@ function openAddRegistroModal(){
         registroCompanerosSearch='';
         document.getElementById('rCompaneroSearch').value='';
         document.getElementById('personasSaludContainer').insertAdjacentHTML('beforeend', personaSaludBlockHTML(cid));
-        bindPersonaNaToggle(cid);
         renderCompaneroChips(); renderCompaneroResultados();
       });
     });
@@ -2636,14 +2817,20 @@ function openAddRegistroModal(){
     grupoIds.forEach(cid=>{
       const otros = grupoIds.filter(id=>id!==cid).map(id=>CLIENTES.find(c=>c.id===id).nombre);
       const entry = {};
+      // 23/07/2026: ya no existe la casilla "No aplica" — un campo en blanco simplemente significa
+      // que no se tomó ese dato. Las columnas *NA se mantienen en el objeto (siempre en false) solo
+      // para no romper la posición de columnas del Excel de Drive ya sincronizado (REGISTRO_SHEET_HEADERS).
       vitalFields.forEach(f=>{
         const key = f.charAt(0).toLowerCase()+f.slice(1);
-        const na = document.querySelector(`[data-persona-block="${cid}"] .field-na-check[data-na-field="${f}"]`)?.checked || false;
-        entry[key+'NA'] = na;
-        entry[key] = na ? '' : numOrBlank(`r${f}_${cid}`);
+        entry[key+'NA'] = false;
+        entry[key] = numOrBlank(`r${f}_${cid}`);
       });
-      const postAnyResolved = ['postSis','postDia','postPpm','postSpo2'].some(k=> entry[k]!=='' || entry[k+'NA']);
-      entry.estado = postAnyResolved ? 'cerrado' : 'abierto';
+      const claseCompletada = document.querySelector(`[data-cc-cid="${cid}"]`)?.checked || false;
+      const postAnyResolved = ['postSis','postDia','postPpm','postSpo2'].some(k=> entry[k]!=='');
+      // La clase queda "completada" (cerrado) si el profesor marcó la casilla explícitamente, o si
+      // ya trae algún dato de cierre — así se puede guardar sin datos y sin problema, y quedará
+      // "Falta cierre" solo cuando de verdad falte confirmar el fin de la clase.
+      entry.estado = (claseCompletada || postAnyResolved) ? 'cerrado' : 'abierto';
       const nuevoRegistro = { id:'r'+Date.now()+'_'+cid, clienteId:cid, fecha, modalidad, profesorId:STATE.user.id, detalle, companeros: otros, ...entry };
       REGISTROS.push(nuevoRegistro);
       ensureHistorialCompletada(cid, fecha, STATE.user.id, modalidad);
@@ -2656,15 +2843,13 @@ function openAddRegistroModal(){
   });
 }
 
-// Campo de salud con su propia casilla "No aplica" independiente, para los modales de
-// "Completar" y "Editar registro". `id` debe ser el id completo del input (ej. "cPostSis" o "ePreSis").
-function completarFieldHTML(id, label, placeholder, value, naChecked){
+// Campo de salud para los modales de "Completar"/"Clase completada" y "Editar registro". `id` debe
+// ser el id completo del input (ej. "cPostSis" o "ePreSis"). 23/07/2026: se quitó la casilla
+// "No aplica" — un campo en blanco ya significa "no se tomó", sin necesidad de marcarlo.
+function completarFieldHTML(id, label, placeholder, value){
   return `<div class="field">
     <label>${label}</label>
-    <input type="number" id="${id}" placeholder="${placeholder}" value="${value}" ${naChecked?'disabled':''}>
-    <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--ink-fade);margin-top:3px;cursor:pointer;font-weight:400;">
-      <input type="checkbox" class="c-na-check" data-na-field="${id}" ${naChecked?'checked':''}> No aplica
-    </label>
+    <input type="number" id="${id}" placeholder="${placeholder}" value="${value}">
   </div>`;
 }
 
@@ -2679,7 +2864,7 @@ function openCompletarRegistroModal(registroId){
     </div>
     <div class="modal-body">
       <div class="section-sub" style="margin-bottom:6px;">${cliente.nombre} · ${fmtFechaCorta(r.fecha)}</div>
-      <div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">Datos de inicio de clase ya guardados. Completa lo que tengas al finalizar — tampoco es obligatorio, y puedes marcar "No aplica" en el dato puntual que no se tome.</div>
+      <div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">Datos de inicio de clase ya guardados. Completa lo que tengas al finalizar (opcional) y da clic en "Clase completada" — se cierra el registro sin importar si dejas los datos en blanco o no.</div>
       <div class="pill pill-teal" style="margin-bottom:8px;">Al iniciar la clase (referencia)</div>
       <div class="field-row">
         <div class="field"><label>PA sistólica</label><input type="number" id="cPreSis" value="${val(r.preSis)}" disabled style="opacity:.6;"></div>
@@ -2692,43 +2877,36 @@ function openCompletarRegistroModal(registroId){
       <form id="completarForm">
         <div class="pill pill-accent" style="margin:10px 0 8px;">Al finalizar la clase</div>
         <div class="field-row">
-          ${completarFieldHTML('cPostSis','PA sistólica','128',val(r.postSis),r.postSisNA)}
-          ${completarFieldHTML('cPostDia','PA diastólica','84',val(r.postDia),r.postDiaNA)}
+          ${completarFieldHTML('cPostSis','PA sistólica','128',val(r.postSis))}
+          ${completarFieldHTML('cPostDia','PA diastólica','84',val(r.postDia))}
         </div>
         <div class="field-row">
-          ${completarFieldHTML('cPostPpm','PPM','102',val(r.postPpm),r.postPpmNA)}
-          ${completarFieldHTML('cPostSpo2','SpO2 (%)','96',val(r.postSpo2),r.postSpo2NA)}
+          ${completarFieldHTML('cPostPpm','PPM','102',val(r.postPpm))}
+          ${completarFieldHTML('cPostSpo2','SpO2 (%)','96',val(r.postSpo2))}
         </div>
         <div class="field"><label>Detalle / observación</label><textarea id="cDetalle" placeholder="Tolerancia, molestias, ajustes de carga…">${r.detalle||''}</textarea></div>
       </form>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" id="btnSaveCompletar">Guardar cierre</button>
+      <button class="btn btn-primary" id="btnSaveCompletar">Clase completada</button>
     </div>
   `);
-  document.querySelectorAll('#completarForm .c-na-check').forEach(chk=>{
-    chk.addEventListener('change', ()=>{
-      const input = document.getElementById(chk.dataset.naField);
-      input.disabled = chk.checked;
-      if(chk.checked) input.value = '';
-    });
-  });
   document.getElementById('btnSaveCompletar').addEventListener('click', ()=>{
     const numOrBlank = id => { const v = document.getElementById(id).value; return v===''? '' : +v; };
     const fields = [['cPostSis','postSis'],['cPostDia','postDia'],['cPostPpm','postPpm'],['cPostSpo2','postSpo2']];
     r.detalle = document.getElementById('cDetalle').value.trim();
     fields.forEach(([inputId,key])=>{
-      const na = document.querySelector(`.c-na-check[data-na-field="${inputId}"]`).checked;
-      r[key+'NA'] = na;
-      r[key] = na ? '' : numOrBlank(inputId);
+      r[key+'NA'] = false;
+      r[key] = numOrBlank(inputId);
     });
-    const postAnyResolved = ['postSis','postDia','postPpm','postSpo2'].some(k=> r[k]!=='' || r[k+'NA']);
-    r.estado = postAnyResolved ? 'cerrado' : 'abierto';
+    // El botón "Clase completada" cierra el registro sin condiciones — con datos de cierre o sin
+    // ellos, tal como pidió el usuario (23/07/2026): "permitir que se guarde sin datos de salud".
+    r.estado = 'cerrado';
     { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
     closeModal();
     renderTablaRegistro();
-    toast(r.estado==='cerrado' ? 'Registro completado' : 'Registro actualizado (sigue sin datos de cierre)', 'success');
+    toast('Clase marcada como completada', 'success');
   });
 }
 
@@ -2759,22 +2937,25 @@ function openEditarRegistroModal(registroId){
         </div>
         <div class="pill pill-teal" style="margin:6px 0 8px;">Al iniciar la clase</div>
         <div class="field-row">
-          ${completarFieldHTML('ePreSis','PA sistólica','120',val(r.preSis),r.preSisNA)}
-          ${completarFieldHTML('ePreDia','PA diastólica','80',val(r.preDia),r.preDiaNA)}
+          ${completarFieldHTML('ePreSis','PA sistólica','120',val(r.preSis))}
+          ${completarFieldHTML('ePreDia','PA diastólica','80',val(r.preDia))}
         </div>
         <div class="field-row">
-          ${completarFieldHTML('ePrePpm','PPM','76',val(r.prePpm),r.prePpmNA)}
-          ${completarFieldHTML('ePreSpo2','SpO2 (%)','97',val(r.preSpo2),r.preSpo2NA)}
+          ${completarFieldHTML('ePrePpm','PPM','76',val(r.prePpm))}
+          ${completarFieldHTML('ePreSpo2','SpO2 (%)','97',val(r.preSpo2))}
         </div>
         <div class="pill pill-accent" style="margin:12px 0 8px;">Al finalizar la clase</div>
         <div class="field-row">
-          ${completarFieldHTML('ePostSis','PA sistólica','128',val(r.postSis),r.postSisNA)}
-          ${completarFieldHTML('ePostDia','PA diastólica','84',val(r.postDia),r.postDiaNA)}
+          ${completarFieldHTML('ePostSis','PA sistólica','128',val(r.postSis))}
+          ${completarFieldHTML('ePostDia','PA diastólica','84',val(r.postDia))}
         </div>
         <div class="field-row">
-          ${completarFieldHTML('ePostPpm','PPM','102',val(r.postPpm),r.postPpmNA)}
-          ${completarFieldHTML('ePostSpo2','SpO2 (%)','96',val(r.postSpo2),r.postSpo2NA)}
+          ${completarFieldHTML('ePostPpm','PPM','102',val(r.postPpm))}
+          ${completarFieldHTML('ePostSpo2','SpO2 (%)','96',val(r.postSpo2))}
         </div>
+        <label style="display:flex;align-items:center;gap:6px;margin:4px 0 10px;font-size:12.5px;font-weight:600;cursor:pointer;">
+          <input type="checkbox" id="eClaseCompletada" ${r.estado==='cerrado'?'checked':''}> Clase completada
+        </label>
         <div class="field"><label>Detalle / observación</label><textarea id="eDetalle">${r.detalle||''}</textarea></div>
       </form>
     </div>
@@ -2783,13 +2964,6 @@ function openEditarRegistroModal(registroId){
       <button class="btn btn-primary" id="btnSaveEditReg">Guardar cambios</button>
     </div>
   `);
-  document.querySelectorAll('#editRegForm .c-na-check').forEach(chk=>{
-    chk.addEventListener('change', ()=>{
-      const input = document.getElementById(chk.dataset.naField);
-      input.disabled = chk.checked;
-      if(chk.checked) input.value = '';
-    });
-  });
   document.getElementById('btnSaveEditReg').addEventListener('click', ()=>{
     const numOrBlank = id => { const v = document.getElementById(id).value; return v===''? '' : +v; };
     const fechaAnterior = r.fecha;
@@ -2798,12 +2972,10 @@ function openEditarRegistroModal(registroId){
     r.detalle = document.getElementById('eDetalle').value.trim();
     const fields = [['ePreSis','preSis'],['ePreDia','preDia'],['ePrePpm','prePpm'],['ePreSpo2','preSpo2'],['ePostSis','postSis'],['ePostDia','postDia'],['ePostPpm','postPpm'],['ePostSpo2','postSpo2']];
     fields.forEach(([inputId,key])=>{
-      const na = document.querySelector(`.c-na-check[data-na-field="${inputId}"]`).checked;
-      r[key+'NA'] = na;
-      r[key] = na ? '' : numOrBlank(inputId);
+      r[key+'NA'] = false;
+      r[key] = numOrBlank(inputId);
     });
-    const tieneCierre = ['postSis','postDia','postPpm','postSpo2'].some(k=> r[k]!=='' || r[k+'NA']);
-    r.estado = tieneCierre ? 'cerrado' : 'abierto';
+    r.estado = document.getElementById('eClaseCompletada').checked ? 'cerrado' : 'abierto';
     r.fecha = nuevaFecha;
     // Si la fecha cambió, sincroniza el HISTORIAL (billing) que se creó para la fecha anterior.
     if(nuevaFecha !== fechaAnterior){
@@ -2860,11 +3032,11 @@ function openEliminarRegistroModal(registroId){
 function exportRegistroExcel(clienteId){
   const cliente = CLIENTES.find(c=>c.id===clienteId);
   const rows = REGISTROS.filter(r=>r.clienteId===clienteId).sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  const cv = (v,na) => na ? 'No aplica' : v;
+  const cv = v => (v===undefined||v===null) ? '' : v;
   const aoa = [
     ['','','PRE EJERCICIO','','','','POST EJERCICIO','','','',''],
     ['#','Fecha','PA sis','PA dia','ppm','spo2','PA sis','PA dia','ppm','spo2','Detalle'],
-    ...rows.map((r,i)=>[i+1, fmtFechaCorta(r.fecha), cv(r.preSis,r.preSisNA), cv(r.preDia,r.preDiaNA), cv(r.prePpm,r.prePpmNA), cv(r.preSpo2,r.preSpo2NA), cv(r.postSis,r.postSisNA), cv(r.postDia,r.postDiaNA), cv(r.postPpm,r.postPpmNA), cv(r.postSpo2,r.postSpo2NA), r.detalle||'']),
+    ...rows.map((r,i)=>[i+1, fmtFechaCorta(r.fecha), cv(r.preSis), cv(r.preDia), cv(r.prePpm), cv(r.preSpo2), cv(r.postSis), cv(r.postDia), cv(r.postPpm), cv(r.postSpo2), r.detalle||'']),
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = [ {s:{r:0,c:2},e:{r:0,c:5}}, {s:{r:0,c:6},e:{r:0,c:9}} ];
