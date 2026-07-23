@@ -224,6 +224,11 @@ a{color:inherit;}
   border:2px solid var(--paper);animation:pulse 2s infinite;
 }
 .mobile-menu-btn{display:none;}
+/* Botón de cuenta en el topbar (visible en celular y computador): antes "cerrar sesión" y los datos
+   de la cuenta solo existían dentro de .sidebar, que se oculta por completo en celular — dejando al
+   usuario móvil sin ninguna forma de ver su cuenta o cerrar sesión. Reutiliza el mismo look del
+   avatar circular con iniciales que ya se usaba en el sidebar de escritorio. */
+#btnAccount{background:var(--accent);color:#fff;font-weight:700;font-size:13px;}
 
 main{flex:1;padding:24px 28px 100px;max-width:1180px;width:100%;}
 .module{display:none;}
@@ -284,6 +289,13 @@ tr:last-child td{border-bottom:none;}
   .sidebar{display:none;}
   main{padding:18px 16px 100px;}
   .topbar{padding:14px 16px;}
+  /* En celular el topbar es angosto: el estado de Google Drive y el selector Administrador/Profesor
+     (antes aquí, empujaban el botón de cuenta fuera de la pantalla) se mueven al panel "Mi cuenta"
+     (#btnAccount → #accountDrawer), que ya los muestra completos y sin recortes — así se libera
+     espacio para el título y se garantiza que el botón de cuenta/cerrar sesión siempre sea visible
+     y alcanzable con el pulgar. */
+  #driveConnectWrap{display:none !important;}
+  #adminModeToggle{display:none !important;}
   .bottom-nav{
     display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);
     z-index:50;padding:8px 6px calc(8px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px rgba(20,20,26,.08);
@@ -315,12 +327,13 @@ tr:last-child td{border-bottom:none;}
         <div class="section-sub" id="topbarSub">Tu programación de la semana</div>
       </div>
       <div class="topbar-actions">
-        <div id="adminModeToggle" class="role-toggle" style="width:auto;padding:3px;background:var(--paper-dim);display:none;"></div>
-        <div id="driveConnectWrap" style="display:none;align-items:center;gap:8px;"></div>
+        <div id="adminModeToggle" class="role-toggle role-toggle-wrap" style="width:auto;padding:3px;background:var(--paper-dim);display:none;"></div>
+        <div id="driveConnectWrap" class="drive-connect-wrap" style="display:none;align-items:center;gap:8px;"></div>
         <button class="icon-btn" id="btnNotif" title="Notificaciones" aria-label="Notificaciones">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span class="notif-dot" id="notifDot"></span>
         </button>
+        <button class="icon-btn" id="btnAccount" title="Mi cuenta" aria-label="Mi cuenta"></button>
       </div>
     </header>
     <main id="mainContent">
@@ -342,6 +355,13 @@ tr:last-child td{border-bottom:none;}
     <button class="modal-close" id="closeDrawer">✕</button>
   </div>
   <div class="drawer-body" id="notifList"></div>
+</div>
+<div class="drawer" id="accountDrawer">
+  <div class="drawer-head">
+    <h3 style="font-size:16px;font-weight:800;">Mi cuenta</h3>
+    <button class="modal-close" id="closeAccountDrawer">✕</button>
+  </div>
+  <div class="drawer-body" id="accountDrawerBody"></div>
 </div>
 
 <div class="modal-overlay" id="modalOverlay">
@@ -841,10 +861,31 @@ function connectGoogleDrive(silent){
       if(!silent) toast('Google Identity Services no cargó todavía. Intenta de nuevo en un momento.', 'error');
       return;
     }
+    // ---------- Aviso si la ventana de Google nunca llega a aparecer (23/07/2026, noche) ----------
+    // Reporte real: en celular, al tocar "Conectar Google Drive" "hace como si conectara pero no lo
+    // hace y no pide datos" — ni éxito, ni el toast de error de abajo. La causa más probable es que
+    // el navegador del celular bloqueó la ventana emergente de Google en silencio: cuando eso pasa,
+    // ni `callback` ni `error_callback` de Google Identity Services se llegan a ejecutar — el intento
+    // simplemente no produce ninguna señal, por eso antes no se veía ningún aviso. Este "vigilante"
+    // (solo para el intento NO silencioso, es decir un clic real del administrador) espera unos
+    // segundos y, si para entonces no hubo ni éxito ni error, asume que la ventana fue bloqueada y lo
+    // dice explícitamente con instrucciones concretas, en vez de dejar al usuario sin ninguna pista.
+    let watchdogResuelto = silent; // los intentos silenciosos no necesitan este aviso
+    let watchdogTimer = null;
+    if(!silent){
+      watchdogTimer = setTimeout(()=>{
+        if(!watchdogResuelto){
+          watchdogResuelto = true;
+          toast('No se abrió la ventana de Google. Es probable que el navegador haya bloqueado la ventana emergente — revisa el ícono de "ventana bloqueada" en la barra de direcciones, permite ventanas emergentes para este sitio, y vuelve a tocar "Conectar Google Drive".', 'error');
+        }
+      }, 4000);
+    }
+    const resolverWatchdog = ()=>{ watchdogResuelto = true; if(watchdogTimer) clearTimeout(watchdogTimer); };
     const tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: 'https://www.googleapis.com/auth/drive',
       callback: (resp)=>{
+        resolverWatchdog();
         if(resp && resp.access_token){
           driveAccessToken = resp.access_token;
           driveConnected = true;
@@ -862,6 +903,7 @@ function connectGoogleDrive(silent){
         }
       },
       error_callback: ()=>{
+        resolverWatchdog();
         // El intento silencioso puede fallar (ej. requiere elegir cuenta) — no molestar en ese caso.
         if(!silent) toast('No se pudo conectar Google Drive', 'error');
       },
@@ -908,21 +950,55 @@ function attemptSilentDriveReconnect(){
 // Refresca el pequeño bloque de UI (botón + estado) donde sea que esté renderizado. Se llama tanto
 // desde bootApp (primer render) como después de conectar, para reflejar el estado actualizado.
 // Solo visible para el administrador — Daniel y Karen nunca ven este botón ni necesitan usarlo.
+// El selector "Administrador / Profesor" se dibuja en dos sitios (topbar en computador, panel "Mi
+// cuenta" siempre — en celular el del topbar se oculta por CSS para no saturar el encabezado, ver
+// nota junto a #driveConnectWrap en el CSS) usando la misma clase .role-toggle-wrap, igual que ya
+// se hace con renderDriveConnectUI().
+function renderAdminModeToggleUI(){
+  const wraps = document.querySelectorAll('.role-toggle-wrap');
+  if(!wraps.length) return;
+  wraps.forEach(wrap=>{
+    if(!(STATE.user && STATE.user.rol==='admin')){
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.style.display = 'flex';
+    wrap.innerHTML = `
+      <button type="button" class="roleModeBtn ${STATE.adminViewMode!=='profesor'?'active':''}" data-mode="admin" style="padding:8px 14px;">Administrador</button>
+      <button type="button" class="roleModeBtn ${STATE.adminViewMode==='profesor'?'active':''}" data-mode="profesor" style="padding:8px 14px;">Profesor</button>
+    `;
+    wrap.querySelectorAll('.roleModeBtn').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        STATE.adminViewMode = b.dataset.mode;
+        document.querySelectorAll('.role-toggle-wrap .roleModeBtn').forEach(x=>x.classList.toggle('active', x.dataset.mode===STATE.adminViewMode));
+        toast(b.dataset.mode==='admin' ? 'Vista de administrador: ves todo el negocio' : 'Vista de profesor: solo tu propio trabajo', 'success');
+        switchModule(STATE.module);
+      });
+    });
+  });
+}
+
 function renderDriveConnectUI(){
-  const wrap = document.getElementById('driveConnectWrap');
-  if(!wrap) return;
-  if(!(STATE.user && STATE.user.rol==='admin')){
-    wrap.style.display = 'none';
-    wrap.innerHTML = '';
-    return;
-  }
-  wrap.style.display = 'flex';
-  wrap.innerHTML = `
-    <button type="button" class="btn btn-outline btn-sm" id="btnConnectDrive">${driveConnected? 'Reconectar Google Drive' : 'Conectar Google Drive'}</button>
-    <span class="section-sub" style="font-size:11.5px;">${driveConnected? 'Drive conectado — horario sincronizado' : 'Drive no conectado'}</span>
-  `;
-  const btn = document.getElementById('btnConnectDrive');
-  if(btn) btn.addEventListener('click', connectGoogleDrive);
+  // Se actualizan TODOS los contenedores con la clase .drive-connect-wrap: el del topbar (solo
+  // visible en computador, donde cabe) y el del panel "Mi cuenta" (visible también en celular).
+  // Antes solo existía el del topbar por id, y en celular quedaba oculto sin ninguna alternativa.
+  const wraps = document.querySelectorAll('.drive-connect-wrap');
+  if(!wraps.length) return;
+  wraps.forEach(wrap=>{
+    if(!(STATE.user && STATE.user.rol==='admin')){
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.style.display = 'flex';
+    wrap.innerHTML = `
+      <button type="button" class="btn btn-outline btn-sm btnConnectDrive">${driveConnected? 'Reconectar Google Drive' : 'Conectar Google Drive'}</button>
+      <span class="section-sub" style="font-size:11.5px;">${driveConnected? 'Drive conectado — horario sincronizado' : 'Drive no conectado'}</span>
+    `;
+    const btn = wrap.querySelector('.btnConnectDrive');
+    if(btn) btn.addEventListener('click', ()=>connectGoogleDrive());
+  });
 }
 
 /* ---------- SINCRONIZACIÓN AUTOMÁTICA DEL HORARIO DESDE DRIVE (22/07/2026 noche) ----------
@@ -1784,38 +1860,46 @@ function bootApp(startModule){
   `;
   document.getElementById('bottomNav').innerHTML = items.map(n=>`<button class="nav-item" data-mod="${n.id}"><span style="width:21px;height:21px;display:inline-flex">${n.icon}</span>${n.label}</button>`).join('');
 
+  // Botón de cuenta del topbar + panel "Mi cuenta" (visible también en celular — ver nota de
+  // #btnAccount en el CSS). Muestra los mismos datos que .sidebar-user y el mismo botón de cerrar
+  // sesión, además del estado de Google Drive para el admin (que en el topbar solo cabe en pantallas
+  // anchas).
+  document.getElementById('btnAccount').textContent = initials(STATE.user.nombre);
+  document.getElementById('accountDrawerBody').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;background:var(--paper-dim);margin:6px 6px 18px;">
+      <div class="avatar" style="width:44px;height:44px;font-size:16px;">${initials(STATE.user.nombre)}</div>
+      <div style="overflow:hidden;">
+        <b style="display:block;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${STATE.user.nombre}</b>
+        <span class="section-sub" style="font-size:12px;margin-top:2px;">${STATE.user.rol==='admin'?'Administrador':'Profesor'}</span>
+      </div>
+    </div>
+    <div id="adminModeToggleDrawer" class="role-toggle role-toggle-wrap" style="width:auto;padding:3px;background:var(--paper-dim);display:none;margin:0 6px 18px;"></div>
+    <div id="driveConnectWrapDrawer" class="drive-connect-wrap" style="display:none;flex-direction:column;align-items:flex-start;gap:8px;margin:0 6px 18px;padding:14px;border:1px solid var(--line);border-radius:14px;"></div>
+    <button class="btn btn-outline btn-block" id="btnLogoutDrawer" style="margin:0 6px;">
+      <span style="width:15px;height:15px;display:inline-flex">${ICONS.logout}</span>Cerrar sesión
+    </button>
+  `;
+
   document.querySelectorAll('.nav-item[data-mod]').forEach(b=>{
     b.addEventListener('click', ()=>switchModule(b.dataset.mod));
   });
   document.getElementById('btnLogout').addEventListener('click', logout);
-  document.getElementById('btnNotif').addEventListener('click', openDrawer);
-  document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
-  document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
+  document.getElementById('btnLogoutDrawer').addEventListener('click', logout);
+  document.getElementById('btnNotif').addEventListener('click', ()=>openDrawer('notifDrawer'));
+  document.getElementById('btnAccount').addEventListener('click', ()=>openDrawer('accountDrawer'));
+  document.getElementById('closeDrawer').addEventListener('click', closeAllDrawers);
+  document.getElementById('closeAccountDrawer').addEventListener('click', closeAllDrawers);
+  document.getElementById('drawerOverlay').addEventListener('click', closeAllDrawers);
 
-  const toggleWrap = document.getElementById('adminModeToggle');
-  if(STATE.user.rol==='admin'){
-    toggleWrap.style.display = 'flex';
-    toggleWrap.innerHTML = `
-      <button type="button" data-mode="admin" class="${STATE.adminViewMode!=='profesor'?'active':''}" style="padding:8px 14px;">Administrador</button>
-      <button type="button" data-mode="profesor" class="${STATE.adminViewMode==='profesor'?'active':''}" style="padding:8px 14px;">Profesor</button>
-    `;
-    toggleWrap.querySelectorAll('button').forEach(b=>{
-      b.addEventListener('click', ()=>{
-        STATE.adminViewMode = b.dataset.mode;
-        toggleWrap.querySelectorAll('button').forEach(x=>x.classList.toggle('active', x===b));
-        toast(b.dataset.mode==='admin' ? 'Vista de administrador: ves todo el negocio' : 'Vista de profesor: solo tu propio trabajo', 'success');
-        switchModule(STATE.module);
-      });
-    });
-  } else {
-    toggleWrap.style.display = 'none';
-  }
-
+  renderAdminModeToggleUI();
   renderDriveConnectUI();
   attemptSilentDriveReconnect(); // solo hace algo si es admin — ver nota en la función
   _scheduleCacheFetch(); // para TODOS los roles: lee el horario ya sincronizado, sin login
 
-  switchModule(startModule || 'horario');
+  // {push:true}: crea la entrada de historial que separa "login" de "app" (ver nota completa en
+  // switchModule) — así el botón/gesto "atrás" del celular vuelve al panel de ingreso en vez de
+  // salir de la app sin más.
+  switchModule(startModule || 'horario', {push:true});
   renderNotifDrawer();
 }
 
@@ -1826,13 +1910,18 @@ function initials(name){
 function logout(){
   STATE.user = null;
   clearSession();
+  closeAllDrawers();
   document.getElementById('app').classList.remove('active');
   document.getElementById('loginScreen').style.display='flex';
   renderLogin();
   toast('Sesión cerrada');
+  // Deja el historial listo en "login": si el usuario da "atrás" después de cerrar sesión no debe
+  // reaparecer un estado de la app ya cerrada (ver nota completa en switchModule/popstate).
+  try{ history.replaceState({screen:'login'}, '', location.pathname+location.search); }catch(e){}
 }
 
-function switchModule(id){
+function switchModule(id, opts){
+  opts = opts || {};
   STATE.module = id;
   saveSession();
   document.querySelectorAll('.module').forEach(m=>m.classList.remove('active'));
@@ -1847,16 +1936,37 @@ function switchModule(id){
   if(id==='docs') renderDocs();
   if(id==='clientes') renderClientes();
   if(id==='disponibilidad') renderDisponibilidad();
+
+  /* ---------- Integración con el botón/gesto "atrás" del celular (23/07/2026) ----------
+     Pedido explícito: "si le da atras devolver al panel de ingreso pero que al regresar esté la
+     pestaña donde quedó". Antes la app no tocaba `history` en absoluto, así que "atrás" en el
+     celular no tenía ningún comportamiento predecible dentro de la app (dependía 100% de cómo cada
+     navegador maneja el bfcache). Ahora se mantienen exactamente 2 tipos de entradas en el
+     historial: {screen:'login'} (una sola, de base) y {screen:'app', mod:X} (se reemplaza — no se
+     apila una por cada pestaña — así "atrás" siempre lleva directo al login sin importar cuántas
+     pestañas haya visitado). La entrada {screen:'app'} se agrega una sola vez de verdad (con
+     pushState, vía bootApp→switchModule(..., {push:true})) al entrar a la app, creando el "escalón"
+     entre login y app; los cambios de pestaña dentro de la app solo reemplazan esa misma entrada
+     (replaceState) para no acumular historial. La sesión NUNCA se cierra por dar "atrás": al llegar
+     al estado 'login' simplemente se muestra el panel de ingreso sin borrar STATE.user ni el
+     localStorage, así que si el usuario avanza de nuevo (o reabre la pestaña donde quedó) vuelve
+     exactamente a la misma pantalla, tal como se pidió. */
+  if(!opts.fromPopState){
+    const state = {screen:'app', mod:id};
+    if(opts.push) history.pushState(state, '', '#'+id);
+    else history.replaceState(state, '', '#'+id);
+  }
 }
 
-/* ===================== NOTIFICATIONS DRAWER ===================== */
-function openDrawer(){
+/* ===================== NOTIFICATIONS / ACCOUNT DRAWERS ===================== */
+function openDrawer(id){
   document.getElementById('drawerOverlay').classList.add('show');
-  document.getElementById('notifDrawer').classList.add('show');
+  document.getElementById(id || 'notifDrawer').classList.add('show');
 }
-function closeDrawer(){
+function closeAllDrawers(){
   document.getElementById('drawerOverlay').classList.remove('show');
   document.getElementById('notifDrawer').classList.remove('show');
+  document.getElementById('accountDrawer').classList.remove('show');
 }
 function renderNotifDrawer(){
   const unread = NOTIFICACIONES.filter(n=>!n.leido).length;
@@ -4192,9 +4302,34 @@ function downloadAnamnesisPDF(clienteId){
   if(btn){ btn.innerHTML = original; btn.disabled = false; }
 }
 
+/* ===================== NAVEGACIÓN "ATRÁS" DEL CELULAR (historial) =====================
+   Ver la nota completa en switchModule(). Este listener se registra UNA sola vez (no dentro de
+   bootApp, que puede volver a ejecutarse en un logout+login dentro de la misma pestaña) y es el que
+   realmente reacciona al botón/gesto "atrás" o "adelante" del navegador. */
+window.addEventListener('popstate', function(e){
+  if(!STATE.user) return; // sin sesión activa: no hay nada de la app que restaurar
+  const st = e.state;
+  if(st && st.screen==='app' && st.mod && document.getElementById('mod-'+st.mod)){
+    // "Adelante" (o volvió a esta entrada): reaparece la app en la misma pestaña donde había quedado.
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('app').classList.add('active');
+    switchModule(st.mod, {fromPopState:true});
+  } else {
+    // "Atrás" desde la app: vuelve al panel de ingreso SIN cerrar la sesión ni perder la pestaña
+    // donde estaba — pedido explícito del usuario.
+    closeAllDrawers();
+    document.getElementById('app').classList.remove('active');
+    renderLogin();
+    document.getElementById('loginScreen').style.display='flex';
+  }
+});
+
 /* ===================== INIT ===================== */
 loadState();
 (function initApp(){
+  // Marca la entrada de historial inicial como "login" — es el punto al que siempre se vuelve al
+  // dar "atrás" desde dentro de la app (ver switchModule/popstate arriba).
+  try{ history.replaceState({screen:'login'}, '', location.pathname+location.search); }catch(e){}
   const session = loadSession();
   const user = session && USERS.find(u=>u.id===session.userId);
   if(user){
