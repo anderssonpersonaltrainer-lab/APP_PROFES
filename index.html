@@ -556,6 +556,11 @@ const TIPO_CANCELACION = [
   {v:'anticipada', label:'Cancelación anticipada presencial', pct:0.20, desc:'Cliente notifica con anticipación (no sobre el tiempo). 1ª del mes gratis, siguientes 20%.'},
   {v:'sobre_tiempo', label:'Cancelación sobre tiempo presencial', pct:1.00, desc:'Cliente notifica con 2h o menos de anticipación. Costo 100%.'},
   {v:'programada', label:'Cancelación programada', pct:0, desc:'Cliente avisa desde el viernes anterior que no tomará varias sesiones seguidas. Sin costo (1 vez al mes).'},
+  // 24/07/2026: pedido explícito de Andersson — cuando es el PROFESOR quien cancela la clase (no el
+  // cliente), no debe generarle ningún cobro al cliente, sin importar cuándo se avise ni cuántas
+  // veces pase en el mes (no comparte el cupo/tope de las cancelaciones "anticipada"/"programada",
+  // que sí son responsabilidad del cliente).
+  {v:'profesor', label:'Cancelación por profesor', pct:0, desc:'El profesor canceló la clase (no el cliente). Nunca tiene costo para el cliente.'},
 ];
 
 function pad(n){return n<10?'0'+n:''+n;}
@@ -1646,6 +1651,7 @@ const CANCEL_META = {
   anticipada:{label:'Cancelación anticipada', cls:'pill-warning'},
   sobre_tiempo:{label:'Cancelación sobre tiempo', cls:'pill-danger'},
   programada:{label:'Cancelación programada', cls:'pill-gray'},
+  profesor:{label:'Cancelación por profesor', cls:'pill-accent'},
 };
 
 /* ---------- SUSPENSIÓN TEMPORAL DE SESIONES ---------- */
@@ -3017,7 +3023,7 @@ function cancelacionesDelMes(clienteId, monthStr){
 function computeInvoice(clienteId, monthStr){
   const cliente = CLIENTES.find(c=>c.id===clienteId);
   const entries = [...sesionesCompletadasDelMes(clienteId, monthStr), ...cancelacionesDelMes(clienteId, monthStr)].sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  let anticipadaCount = 0, qtyCompletada=0, qtyAnticipadaCobrada=0, qtySobreTiempo=0;
+  let anticipadaCount = 0, qtyCompletada=0, qtyAnticipadaCobrada=0, qtySobreTiempo=0, qtyProfesor=0;
   const detalle = [];
   entries.forEach(h=>{
     if(h.estado==='completada'){
@@ -3035,6 +3041,12 @@ function computeInvoice(clienteId, monthStr){
       } else if(h.tipoCancelacion==='sobre_tiempo'){
         qtySobreTiempo++;
         detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:'Cancelación sobre tiempo presencial', costo:cliente.tarifa});
+      } else if(h.tipoCancelacion==='profesor'){
+        // 24/07/2026: cancelación responsabilidad del profesor (no del cliente) — nunca tiene costo,
+        // y NO cuenta contra el cupo mensual de cancelaciones gratuitas del cliente (anticipadaCount
+        // deliberadamente no se toca aquí).
+        qtyProfesor++;
+        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:'Cancelación por profesor (sin costo)', costo:0});
       } else {
         detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:'Cancelación programada (sin costo)', costo:0});
       }
@@ -3044,6 +3056,7 @@ function computeInvoice(clienteId, monthStr){
     {n:1, cant:qtyCompletada, desc:'Entrenamiento adaptado Presencial', unit:cliente.tarifa, total:qtyCompletada*cliente.tarifa},
     {n:2, cant:qtyAnticipadaCobrada, desc:'Cancelación anticipada presencial', unit:Math.round(cliente.tarifa*0.20), total:qtyAnticipadaCobrada*Math.round(cliente.tarifa*0.20)},
     {n:3, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
+    {n:4, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
   ];
   const total = items.reduce((a,i)=>a+i.total,0);
   const numero = nextInvoiceNumero(clienteId);
@@ -3060,6 +3073,7 @@ const NORMAS_CANCELACION = [
   {n:4, t:'Cancelación anticipada:', d:'El cliente tiene la posibilidad de cancelar una sesión al mes sin ningún costo (siempre que no sea una cancelación sobre el tiempo). Luego de la primera cancelación, todas las sesiones canceladas tendrán un costo del 20% del total.'},
   {n:5, t:'Cancelación programada:', d:'Se considera una cancelación programada cuando el cliente haya hecho la notificación de que no tomará varias sesiones seguidas. Lo anterior siempre y cuando el cliente notifique mínimo el viernes anterior. Para este caso no habrá costo alguno, sin embargo, este tipo de cancelación se aceptará solo una vez en el mes y en adelante toda cancelación tendrá costo según lo estipulado.'},
   {n:6, t:'Reposición de la sesión:', d:'Cuando el cliente no pueda tomar alguna sesión y notifique de manera anticipada, cuenta con la posibilidad de postponerla. Lo anterior únicamente si el entrenador tiene otro horario disponible, de no ser así la situación se entenderá como una cancelación anticipada.'},
+  {n:7, t:'Cancelación por parte del profesor:', d:'Cuando sea el profesor quien deba cancelar la clase por algún motivo (no el cliente), esta cancelación no genera ningún costo para el cliente y no cuenta contra su cupo mensual de cancelaciones.'},
 ];
 
 // Oculta del resumen los conceptos de cancelación que no tuvieron ninguna ocurrencia ese mes (cant=0)
@@ -3805,6 +3819,11 @@ function resumenValorProfesorMes(profesorId, monthStr){
           valorPerdida += anticipadaCount===1 ? cliente.tarifa : Math.round(cliente.tarifa*0.80);
         } else if(h.tipoCancelacion==='sobre_tiempo'){
           // El cliente paga el 100% de la tarifa: no hay pérdida.
+        } else if(h.tipoCancelacion==='profesor'){
+          // 24/07/2026: cancelación por responsabilidad del profesor — tampoco se le cobra al
+          // cliente, así que la sesión igual se pierde para el negocio (mismo efecto que
+          // "programada" en este cálculo de valor, aunque la causa sea distinta).
+          valorPerdida += cliente.tarifa;
         } else {
           // Cancelación programada: sin costo para el cliente → se pierde el 100% de la tarifa.
           valorPerdida += cliente.tarifa;
