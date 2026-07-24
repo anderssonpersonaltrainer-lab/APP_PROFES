@@ -2995,6 +2995,23 @@ function invoicePage2HTML(){
   </div>`;
 }
 
+// Misma hoja de arriba, pero con ancho fijo (igual que invoiceHeaderBlockHTML/invoiceRowsGroupHTML/
+// invoiceFooterBlockHTML) para capturarla fuera de pantalla con _renderBlockToImage — ver el bug
+// real corregido el 24/07/2026 justo debajo, en buildInvoicePDFBlob.
+function invoicePage2RenderHTML(){
+  return `
+  <div style="background:#fff;padding:44px 46px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    <div style="text-align:center;margin-bottom:18px;display:flex;justify-content:center;">${logoImg('black', 80)}</div>
+    <h2 style="text-align:center;font-size:16px;margin-bottom:20px;color:#1e293b;">Normas para la cancelación de las sesiones</h2>
+    <p style="font-size:11.5px;line-height:1.7;margin-bottom:14px;color:#334155;">El presente documento tiene como fin informar al cliente acerca del proceso para cancelar sesiones.</p>
+    ${NORMAS_CANCELACION.map(n=>`
+      <p style="font-size:11.5px;line-height:1.7;margin-bottom:12px;color:#334155;">
+        <b style="color:#1e293b;">${n.n}. ${n.t}</b> ${n.d}
+      </p>
+    `).join('')}
+  </div>`;
+}
+
 function openInvoiceModal(clienteId){
   const inv = computeInvoice(clienteId, STATE.invoiceMonth);
   openModal(`
@@ -3232,13 +3249,18 @@ async function buildInvoicePDFBlob(inv){
   pdf.addImage(footer.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, footer.heightPt);
 
   // 4) Hoja fija de normas de cancelación, siempre al final.
-  const normasEl = document.getElementById('invoicePage2');
-  if(normasEl){
-    const normasCanvas = await html2canvas(normasEl, {scale:2, backgroundColor:'#ffffff'});
-    const normasH = (normasCanvas.height * INVOICE_PAGE_W_PT) / normasCanvas.width;
-    pdf.addPage();
-    pdf.addImage(normasCanvas.toDataURL('image/png'), 'PNG', 0, 0, INVOICE_PAGE_W_PT, normasH);
-  }
+  // Bug real reportado por el usuario el 24/07/2026 ("la segunda hoja sale mal e incompleta"):
+  // antes esto capturaba directamente el elemento <div id="invoicePage2"> ya visible en el modal
+  // de vista previa (ancho:100%), cuyo ancho real en pantalla depende del ancho del modal — mucho
+  // más angosto en celular que el resto de las hojas (que siempre se renderizan fuera de pantalla
+  // con un ancho fijo de INVOICE_RENDER_W_PX). Esa diferencia de ancho hacía que, al estirar la
+  // imagen capturada al ancho real de la hoja (INVOICE_PAGE_W_PT), el logo y el texto salieran
+  // mucho más grandes de lo esperado y el contenido se cortara al llegar al borde inferior de la
+  // hoja. Ahora se renderiza igual que los demás bloques: fuera de pantalla, con el mismo ancho
+  // fijo siempre, sin importar el tamaño de pantalla o del modal de vista previa.
+  const normas = await _renderBlockToImage(invoicePage2RenderHTML());
+  pdf.addPage();
+  pdf.addImage(normas.dataUrl, 'PNG', 0, 0, INVOICE_PAGE_W_PT, normas.heightPt);
 
   const filename = nombreArchivoCuenta(inv);
   return { blob: pdf.output('blob'), filename };
@@ -3336,6 +3358,18 @@ async function downloadInvoicePDF(inv){
 // archivos) permite elegir WhatsApp/Gmail y el PDF queda adjunto automáticamente; (2) si el navegador no
 // soporta compartir archivos (típicamente en computador), se descarga el PDF y se abre WhatsApp Web /
 // el correo con el mensaje ya redactado, listo para adjuntar el archivo manualmente.
+//
+// Bug real reportado por el usuario el 24/07/2026 ("no me dirijen a mi whatsapp o correo"): antes de
+// intentar compartir, este código esperaba (await) la confirmación de "¿es la cuenta final?" y
+// además el guardado real en Drive por red — ambos pasos pueden tardar varios segundos. El
+// problema es que navigator.share() SOLO funciona si el navegador todavía considera que se está
+// respondiendo al clic original del usuario ("gesto de usuario"); cualquier espera de red de por
+// medio hace que ese permiso expire, así que para cuando el código llegaba a navigator.share() el
+// navegador ya no dejaba hacer nada — sin ningún error visible para el usuario. El botón
+// "Descargar" nunca tuvo este problema porque ya disparaba la descarga ANTES de guardar en Drive
+// (ver downloadInvoicePDF); ahora "compartir" sigue exactamente el mismo orden: primero se intenta
+// compartir/descargar, apenas el PDF está listo, y el guardado en Drive (con su confirmación) pasa
+// después, sin bloquear ni depender de si compartir funcionó, falló o se canceló.
 async function shareInvoicePDF(inv, via){
   const btnId = via==='whatsapp' ? 'btnCompartirWhatsapp' : 'btnCompartirCorreo';
   const btn = document.getElementById(btnId);
@@ -3345,33 +3379,41 @@ async function shareInvoicePDF(inv, via){
     const { blob, filename } = await buildInvoicePDFBlob(inv);
     const mensaje = `Hola ${inv.cliente.nombre.split(' ')[0]}, te comparto tu cuenta de cobro de ${nombreMes(STATE.invoiceMonth)} por un total de ${money(inv.total)}. Cualquier duda me cuentas.`;
 
-    await guardarCuentaEnDriveConAviso(inv, filename, blob);
-    const file = new File([blob], filename, {type:'application/pdf'});
-    const canShareFile = navigator.canShare && navigator.canShare({files:[file]});
-    if(canShareFile){
-      await navigator.share({ files:[file], title:'Cuenta de cobro', text: mensaje });
-      toast('Compartido', 'success');
-    } else {
-      // Respaldo para computador / navegadores sin soporte de compartir archivos:
-      // se descarga el PDF y se abre WhatsApp Web o el correo con el texto ya listo.
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url), 4000);
-      if(via==='whatsapp'){
-        const tel = (inv.cliente.telefono||'').replace(/\D/g,'');
-        const waUrl = `https://wa.me/${tel.startsWith('57')||!tel?tel:'57'+tel}?text=${encodeURIComponent(mensaje)}`;
-        window.open(waUrl, '_blank');
-        toast('PDF descargado. Se abrió WhatsApp con el mensaje — adjunta el archivo descargado.', 'success');
+    try{
+      const file = new File([blob], filename, {type:'application/pdf'});
+      const canShareFile = navigator.canShare && navigator.canShare({files:[file]});
+      if(canShareFile){
+        await navigator.share({ files:[file], title:'Cuenta de cobro', text: mensaje });
+        toast('Compartido', 'success');
       } else {
-        const subject = `Cuenta de cobro ${nombreMes(STATE.invoiceMonth)} — Andersson Personal Trainer`;
-        window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(mensaje)}`;
-        toast('PDF descargado. Se abrió tu correo con el mensaje — adjunta el archivo descargado.', 'success');
+        // Respaldo para computador / navegadores sin soporte de compartir archivos:
+        // se descarga el PDF y se abre WhatsApp Web o el correo con el texto ya listo.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url), 4000);
+        if(via==='whatsapp'){
+          const tel = (inv.cliente.telefono||'').replace(/\D/g,'');
+          const waUrl = `https://wa.me/${tel.startsWith('57')||!tel?tel:'57'+tel}?text=${encodeURIComponent(mensaje)}`;
+          window.open(waUrl, '_blank');
+          toast('PDF descargado. Se abrió WhatsApp con el mensaje — adjunta el archivo descargado.', 'success');
+        } else {
+          const subject = `Cuenta de cobro ${nombreMes(STATE.invoiceMonth)} — Andersson Personal Trainer`;
+          window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(mensaje)}`;
+          toast('PDF descargado. Se abrió tu correo con el mensaje — adjunta el archivo descargado.', 'success');
+        }
       }
+    }catch(shareErr){
+      if(shareErr && shareErr.name==='AbortError'){ /* el usuario cerró el menú de compartir, no es un error */ }
+      else { console.error(shareErr); toast('No se pudo compartir el PDF', 'error'); }
     }
+
+    // Guardado en Drive (con su confirmación de "¿es la final?"), siempre después de intentar
+    // compartir, sin importar si compartir funcionó, falló o se canceló.
+    await guardarCuentaEnDriveConAviso(inv, filename, blob);
   }catch(err){
-    if(err && err.name==='AbortError'){ /* el usuario cerró el menú de compartir, no es un error */ }
-    else { console.error(err); toast('No se pudo compartir el PDF', 'error'); }
+    console.error(err);
+    toast('No se pudo generar el PDF', 'error');
   }
   btn.innerHTML = original; btn.disabled = false;
 }
