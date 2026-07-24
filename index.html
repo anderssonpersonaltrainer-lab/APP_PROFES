@@ -1317,6 +1317,13 @@ async function pullRegistrosForCliente(cliente){
         const same = JSON.stringify(local) === JSON.stringify(Object.assign({}, local, remote));
         if(!same) REGISTROS[localIdx] = Object.assign({}, local, remote);
       }
+      // Bug real corregido el 24/07/2026: un registro que llega por sincronización desde OTRO
+      // dispositivo/profesor nunca generaba su entrada en HISTORIAL en este navegador (eso solo
+      // pasaba al crear el registro por primera vez, ver ensureHistorialCompletada más abajo) — así
+      // que las estadísticas del panel de administrador (Clientes, resumen por profesor) quedaban
+      // en $0/0 para cualquier registro que no se hubiera creado en ESTE dispositivo. Ya tiene
+      // dedupe interno (no crea duplicados si ya existe), así que es seguro llamarlo aquí cada vez.
+      if(remote.fecha) ensureHistorialCompletada(remote.clienteId, remote.fecha, remote.profesorId, remote.modalidad);
     });
     saveState();
     if(typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro===cliente.id && document.getElementById('tablaRegistro')){
@@ -2858,9 +2865,33 @@ function promedioSaludTexto(promedio){
   return `PA ${v(promedio.preSis)}/${v(promedio.preDia)} · ppm ${v(promedio.prePpm)} · SpO2 ${promedio.preSpo2===null?'—':promedio.preSpo2+'%'}`;
 }
 
+// Bug real reportado por el usuario el 24/07/2026 ("veo los registros de Catalina pero al
+// descargar la cuenta sale en 0"): las sesiones "completada" (las que se cobran) se armaban antes
+// a partir de HISTORIAL, que se llenaba con ensureHistorialCompletada() SOLO en el mismo navegador
+// donde se guardaba el registro por primera vez — es un array que vive únicamente en el
+// localStorage de ese dispositivo, nunca se sincroniza. Un registro que llega por sincronización
+// desde otro profesor/dispositivo (pullRegistrosForCliente, vía el Apps Script) se ve perfecto en
+// "Sesiones" porque REGISTROS sí está sincronizado, pero nunca generaba su entrada local en
+// HISTORIAL — así que la cuenta de cobro, que solo miraba HISTORIAL, no lo contaba: total $0 sin
+// importar cuántos registros reales hubiera. Ahora las sesiones completadas se calculan
+// directamente de REGISTROS (ya sincronizado para todos los roles/dispositivos), que es la fuente
+// real y siempre al día — exactamente el mismo criterio que usaba ensureHistorialCompletada: todo
+// registro guardado cuenta como sesión dictada, tenga o no datos de salud completos, sin importar
+// en qué dispositivo se haya creado o sincronizado.
+function sesionesCompletadasDelMes(clienteId, monthStr){
+  return REGISTROS
+    .filter(r=>r.clienteId===clienteId && r.fecha && r.fecha.startsWith(monthStr))
+    .sort((a,b)=>a.fecha.localeCompare(b.fecha))
+    .map(r=>({fecha:r.fecha, profesorId:r.profesorId, tipo:`Entrenamiento adaptado ${r.modalidad==='Virtual'?'Online':'Presencial'}`, estado:'completada'}));
+}
+
 function computeInvoice(clienteId, monthStr){
   const cliente = CLIENTES.find(c=>c.id===clienteId);
-  const entries = HISTORIAL.filter(h=>h.clienteId===clienteId && h.fecha.startsWith(monthStr)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  // Las cancelaciones (a diferencia de las sesiones dictadas) siguen viniendo de HISTORIAL — se
+  // registran desde el módulo Horario, un flujo distinto al de Registro de sesiones que todavía no
+  // tiene su propia sincronización entre dispositivos (pendiente, ver contexto-proyecto.md).
+  const cancelaciones = HISTORIAL.filter(h=>h.clienteId===clienteId && h.estado==='cancelada' && h.fecha.startsWith(monthStr));
+  const entries = [...sesionesCompletadasDelMes(clienteId, monthStr), ...cancelaciones].sort((a,b)=>a.fecha.localeCompare(b.fecha));
   let anticipadaCount = 0, qtyCompletada=0, qtyAnticipadaCobrada=0, qtySobreTiempo=0;
   const detalle = [];
   entries.forEach(h=>{
