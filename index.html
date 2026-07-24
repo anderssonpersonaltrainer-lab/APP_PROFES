@@ -2425,7 +2425,7 @@ function renderTablaRegistro(){
         <td colspan="8" style="color:var(--ink-soft);font-size:12.5px;">${r.detalle||''}${r.fechaHoraCancelacion?` <span style="color:var(--ink-fade);">· notificada el ${new Date(r.fechaHoraCancelacion).toLocaleString('es-CO')}</span>`:''}</td>
         <td></td>
         <td style="white-space:nowrap;">
-          ${isAdmin ? `<button class="btn btn-outline btn-sm" data-eliminar-reg="${r.id}" style="color:var(--danger);border-color:var(--danger);">Eliminar</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-outline btn-sm" data-editar-cancel="${r.id}" style="margin-right:4px;">Editar</button><button class="btn btn-outline btn-sm" data-eliminar-reg="${r.id}" style="color:var(--danger);border-color:var(--danger);">Eliminar</button>` : ''}
         </td>
       </tr>`;
         }
@@ -2454,6 +2454,9 @@ function renderTablaRegistro(){
   } else {
     document.querySelectorAll('[data-editar-reg]').forEach(btn=>{
       btn.addEventListener('click', ()=>openEditarRegistroModal(btn.dataset.editarReg));
+    });
+    document.querySelectorAll('[data-editar-cancel]').forEach(btn=>{
+      btn.addEventListener('click', ()=>openEditarCancelacionModal(btn.dataset.editarCancel));
     });
     document.querySelectorAll('[data-eliminar-reg]').forEach(btn=>{
       btn.addEventListener('click', ()=>openEliminarRegistroModal(btn.dataset.eliminarReg));
@@ -2772,6 +2775,78 @@ function openEditarRegistroModal(registroId){
     closeModal();
     renderTablaRegistro();
     toast('Registro actualizado', 'success');
+  });
+}
+
+// 24/07/2026: permite al administrador corregir una cancelación ya registrada (p. ej. si un
+// profesor eligió mal el tipo de cancelación) — pedido explícito de Andersson: "la cancelacion
+// tambien boton de editar para el admin por si un profe la coloco mal poder cambiar el tipo de
+// cancelacion". Reutiliza el mismo registro en REGISTROS (fuente sincronizada real) y lo
+// actualiza vía updateRegistroRowInSheet, igual que la edición de un registro de salud normal.
+function openEditarCancelacionModal(registroId){
+  const r = REGISTROS.find(x=>x.id===registroId);
+  if(!r || r.estado!=='cancelada') return;
+  const cliente = CLIENTES.find(c=>c.id===r.clienteId);
+  if(!cliente) return;
+  openModal(`
+    <div class="modal-head">
+      <h3>Editar cancelación</h3>
+      <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
+    </div>
+    <div class="modal-body">
+      <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
+        <div style="font-weight:700;">${cliente.nombre}</div>
+        <div class="section-sub">${profesorNombre(r.profesorId)}</div>
+      </div>
+      <form id="editCancelForm">
+        <div class="field"><label>Fecha de la clase cancelada</label><input type="date" id="ecFecha" value="${r.fecha}"></div>
+        <div class="field">
+          <label>Tipo de cancelación <span class="req">*</span></label>
+          <select id="ecTipo" required>
+            ${TIPO_CANCELACION.map(t=>`<option value="${t.v}" ${r.tipoCancelacion===t.v?'selected':''}>${t.label}</option>`).join('')}
+          </select>
+          <small id="ecTipoDesc">${(TIPO_CANCELACION.find(t=>t.v===r.tipoCancelacion)||{}).desc||''}</small>
+        </div>
+        <div class="field">
+          <label>Observación <span class="req">*</span></label>
+          <textarea id="ecObs" required>${r.detalle||''}</textarea>
+        </div>
+        <div class="field">
+          <label>Fecha y hora exacta de cancelación <span class="req">*</span></label>
+          <input type="datetime-local" id="ecFechaHora" value="${r.fechaHoraCancelacion||''}" required>
+          <small>Queda registrado en la cuenta de cobro del cliente.</small>
+        </div>
+      </form>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveEditCancel">Guardar cambios</button>
+    </div>
+  `);
+  document.getElementById('ecTipo').addEventListener('change', e=>{
+    const t = TIPO_CANCELACION.find(x=>x.v===e.target.value);
+    document.getElementById('ecTipoDesc').textContent = t? t.desc : '';
+  });
+  document.getElementById('btnSaveEditCancel').addEventListener('click', ()=>{
+    const form = document.getElementById('editCancelForm');
+    if(!form.reportValidity()) return;
+    const fechaAnterior = r.fecha;
+    r.fecha = document.getElementById('ecFecha').value || r.fecha;
+    r.tipoCancelacion = document.getElementById('ecTipo').value;
+    r.detalle = document.getElementById('ecObs').value.trim();
+    r.fechaHoraCancelacion = document.getElementById('ecFechaHora').value;
+    // Mantiene sincronizados los cachés locales (HISTORIAL y SCHEDULE) solo para que la UI de
+    // este dispositivo se vea consistente de inmediato — REGISTROS ya es la fuente real que
+    // alimenta la cuenta de cobro y "Registro de sesiones" en todos los dispositivos.
+    const h = HISTORIAL.find(x=>x.clienteId===r.clienteId && x.fecha===fechaAnterior && x.estado==='cancelada');
+    if(h){ h.fecha=r.fecha; h.tipoCancelacion=r.tipoCancelacion; h.observacion=r.detalle; h.fechaHoraCancelacion=r.fechaHoraCancelacion; }
+    const sSched = SCHEDULE.find(x=>x.clienteId===r.clienteId && x.fecha===fechaAnterior && x.estado==='cancelada');
+    if(sSched){ sSched.fecha=r.fecha; sSched.tipoCancelacion=r.tipoCancelacion; sSched.observacion=r.detalle; sSched.fechaHoraCancelacion=r.fechaHoraCancelacion; }
+    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    saveState();
+    closeModal();
+    renderTablaRegistro();
+    toast('Cancelación actualizada', 'success');
   });
 }
 
