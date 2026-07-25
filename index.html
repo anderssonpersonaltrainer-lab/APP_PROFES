@@ -2416,6 +2416,22 @@ function renderTablaRegistro(){
     .filter(x=>x.n>0)
     .map(x=>`${x.n} ${x.label.replace(/^Cancelación\s*/i,'').trim()}`)
     .join(', ');
+  // 25/07/2026: además del conteo, Andersson pidió ver "el valor que se va generando para cobrar"
+  // — el valor en pesos que representan las sesiones/cancelaciones de este cliente, calculado con
+  // las MISMAS reglas de la cuenta de cobro real (computeInvoiceValues: tarifa completa por sesión
+  // dictada, 20% desde la 2ª cancelación anticipada del mes, 100% en sobre tiempo, $0 en programada
+  // y en cancelación por profesor). Como esa regla del "1ª cancelación anticipada gratis" se
+  // reinicia cada mes, se suma mes por mes (uno por cada mes distinto que aparezca en esta tabla),
+  // no de una sola vez sobre todo el historial junto. Se usa computeInvoiceValues (NO computeInvoice)
+  // a propósito, para no quemar/incrementar el número de cuenta de cobro solo por renderizar esta
+  // pantalla — nextInvoiceNumero() tiene efecto secundario y debe llamarse solo al generar una
+  // cuenta de cobro real.
+  const clienteReg = CLIENTES.find(c=>c.id===selectedClienteRegistro);
+  let valorGenerado = null;
+  if(clienteReg && clienteReg.tarifa!=null){
+    const meses = [...new Set(rows.filter(r=>r.fecha).map(r=>r.fecha.slice(0,7)))];
+    valorGenerado = meses.reduce((acc,m)=>acc + computeInvoiceValues(selectedClienteRegistro, m).total, 0);
+  }
   tbl.innerHTML = `
     <thead>
       <tr>
@@ -2469,7 +2485,8 @@ function renderTablaRegistro(){
     <tfoot>
       <tr>
         <td colspan="15" style="background:var(--paper-dim);font-weight:700;font-size:12.5px;padding:10px 12px;border-top:1.5px solid var(--line);">
-          Subtotal: ${totalSesiones} ${totalSesiones===1?'sesión':'sesiones'} dictada${totalSesiones===1?'':'s'} · ${totalCancelaciones} cancelaci${totalCancelaciones===1?'ón':'ones'}${desgloseCancel?` (${desgloseCancel})`:''}
+          <div>Subtotal: ${totalSesiones} ${totalSesiones===1?'sesión':'sesiones'} dictada${totalSesiones===1?'':'s'} · ${totalCancelaciones} cancelaci${totalCancelaciones===1?'ón':'ones'}${desgloseCancel?` (${desgloseCancel})`:''}</div>
+          ${isAdmin ? `<div style="margin-top:3px;color:var(--ink-soft);">${valorGenerado!=null ? `Valor generado para cobrar: <span style="color:var(--ink);">${money(valorGenerado)}</span>` : `Valor no disponible — la tarifa de ${clienteReg?clienteReg.nombre:'este cliente'} no está verificada contra Drive.`}</div>` : ''}
         </td>
       </tr>
     </tfoot>` : ''}
@@ -3041,7 +3058,15 @@ function cancelacionesDelMes(clienteId, monthStr){
     .map(r=>({fecha:r.fecha, profesorId:r.profesorId, estado:'cancelada', tipoCancelacion:r.tipoCancelacion}));
 }
 
-function computeInvoice(clienteId, monthStr){
+// 25/07/2026: se extrajo el cálculo puro (items/total/detalle) de computeInvoice a esta función
+// aparte, SIN llamar a nextInvoiceNumero() — esa función tiene efecto secundario (incrementa y
+// persiste el contador de número de cuenta de cobro cada vez que se llama). Antes computeInvoice
+// hacía las dos cosas juntas, lo cual era seguro porque solo se llamaba al generar una cuenta de
+// cobro real. Ahora que también se necesita el VALOR calculado para el subtotal en pantalla de
+// "Registro de sesiones" (que se recalcula en cada render, muchas veces por sesión de uso), había
+// que separar el cálculo puro del efecto secundario para no quemar números de cuenta de cobro que
+// nunca se llegan a generar.
+function computeInvoiceValues(clienteId, monthStr){
   const cliente = CLIENTES.find(c=>c.id===clienteId);
   const entries = [...sesionesCompletadasDelMes(clienteId, monthStr), ...cancelacionesDelMes(clienteId, monthStr)].sort((a,b)=>a.fecha.localeCompare(b.fecha));
   let anticipadaCount = 0, qtyCompletada=0, qtyAnticipadaCobrada=0, qtySobreTiempo=0, qtyProfesor=0;
@@ -3080,6 +3105,11 @@ function computeInvoice(clienteId, monthStr){
     {n:4, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
   ];
   const total = items.reduce((a,i)=>a+i.total,0);
+  return {cliente, items, total, detalle};
+}
+
+function computeInvoice(clienteId, monthStr){
+  const {cliente, items, total, detalle} = computeInvoiceValues(clienteId, monthStr);
   const numero = nextInvoiceNumero(clienteId);
   const lastDay = new Date(+monthStr.split('-')[0], +monthStr.split('-')[1], 0).getDate();
   const fechaEmision = `${lastDay}-${monthStr.split('-')[1]}-${monthStr.split('-')[0]}`.split('-').reverse().join('-');
