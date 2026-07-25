@@ -2403,6 +2403,19 @@ function renderTablaRegistro(){
   // campo marcado "No aplica" en registros antiguos se muestran igual, con un simple guion.
   const dash = `<span style="color:var(--ink-fade);">—</span>`;
   const cellFor = v => (v===undefined||v===null||v==='') ? dash : v;
+  // 25/07/2026: pedido explícito de Andersson — mostrar, al pie de la tabla de "Registro de
+  // sesiones", un subtotal de sesiones dictadas vs. canceladas (y el desglose por tipo de
+  // cancelación), para tener de un vistazo el total de este cliente sin tener que contar filas
+  // ni generar la cuenta de cobro. Se calcula sobre TODAS las filas visibles en la tabla (todo el
+  // historial de este cliente, ya que esta vista no filtra por mes).
+  const totalSesiones = rows.filter(r=>r.estado!=='cancelada').length;
+  const cancelRows = rows.filter(r=>r.estado==='cancelada');
+  const totalCancelaciones = cancelRows.length;
+  const desgloseCancel = TIPO_CANCELACION
+    .map(t=>({label:CANCEL_META[t.v]?.label||t.label, n:cancelRows.filter(r=>r.tipoCancelacion===t.v).length}))
+    .filter(x=>x.n>0)
+    .map(x=>`${x.n} ${x.label.replace(/^Cancelación\s*/i,'').trim()}`)
+    .join(', ');
   tbl.innerHTML = `
     <thead>
       <tr>
@@ -2452,6 +2465,14 @@ function renderTablaRegistro(){
         </td>
       </tr>`;}).join('') : `<tr><td colspan="15" style="text-align:center;color:var(--ink-fade);padding:30px;">Sin registros aún para este cliente.</td></tr>`}
     </tbody>
+    ${rows.length ? `
+    <tfoot>
+      <tr>
+        <td colspan="15" style="background:var(--paper-dim);font-weight:700;font-size:12.5px;padding:10px 12px;border-top:1.5px solid var(--line);">
+          Subtotal: ${totalSesiones} ${totalSesiones===1?'sesión':'sesiones'} dictada${totalSesiones===1?'':'s'} · ${totalCancelaciones} cancelaci${totalCancelaciones===1?'ón':'ones'}${desgloseCancel?` (${desgloseCancel})`:''}
+        </td>
+      </tr>
+    </tfoot>` : ''}
   `;
   if(!isAdmin){
     document.querySelectorAll('[data-completar]').forEach(btn=>{
