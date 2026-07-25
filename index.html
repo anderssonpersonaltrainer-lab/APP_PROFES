@@ -604,7 +604,13 @@ function dateForWeekday(offset){ // 0=lunes .. 5=sábado
 }
 
 function calcHoraFin(hora, minutos){ const [h,m]=hora.split(':').map(Number); const total=h*60+m+minutos; return pad(Math.floor(total/60)%24)+':'+pad(total%60); }
-let SCHEDULE = [
+// 25/07/2026: este array ahora es la PLANTILLA semanal (un renglón por horario recurrente —
+// profesor+día+hora — sin fecha específica, igual que como viene del Excel de Drive), no la lista
+// de clases de una semana puntual. Se renombró de "SCHEDULE" a "SCHEDULE_TEMPLATE" porque ahora
+// existe un "SCHEDULE" aparte (más abajo) que es la EXPANSIÓN de esta plantilla a fechas concretas
+// del mes que se esté viendo — ver la sección "HORARIO MENSUAL" más abajo para la explicación
+// completa de por qué se hizo esta separación.
+let SCHEDULE_TEMPLATE = [
   // === Horario real de los 3 profesores, releído celda por celda (incluyendo el color de relleno de cada celda para
   // determinar el tipo exacto: presencial/virtual/masaje) desde la hoja de Drive 'Horarios Profesores' el 22/07/2026,
   // semana del 20 al 25 de julio de 2026 (la semana vigente en Drive al momento de esta sincronización). Reemplaza por
@@ -720,7 +726,13 @@ let SCHEDULE = [
   {id:'s70', clienteId:'c8', profesorId:'u_andersson', dia:5, hora:'11:00', horaFin:'12:00', tipo:'Entrenamiento adaptado Presencial', lugar:'Domicilio cliente', estado:'pendiente'}, // Annie Rehbein
   {id:'s71', clienteId:'c11', profesorId:'u_andersson', dia:5, hora:'12:30', horaFin:'13:30', tipo:'Entrenamiento adaptado Presencial', lugar:'Domicilio cliente', estado:'pendiente'}, // Catalina Fuentes
 ];
-SCHEDULE.forEach(s=>{ s.fecha = dateForWeekday(s.dia); });
+// La expansión de SCHEDULE_TEMPLATE a fechas concretas (lo que realmente se ve/edita en el módulo
+// Horario) — empieza vacía y se llena al arrancar la app (ver "HORARIO MENSUAL" más abajo,
+// junto a syncScheduleFromDrive). SCHEDULE_EXPANDED_MONTHS lleva la cuenta de qué meses ('AAAA-MM')
+// ya se expandieron, para no perder ediciones del administrador (reasignaciones, "Programar
+// cliente") cada vez que se navega a un mes ya visitado antes.
+let SCHEDULE = [];
+let SCHEDULE_EXPANDED_MONTHS = [];
 
 // Historial de sesiones ya transcurridas del mes (incluye completadas y canceladas) para calcular cuentas de cobro.
 // Basado en los registros reales encontrados en Drive (Master_Alberto_Acevedo.xlsm, Master Alejandro Jimenez.xlsm, Clases_Elsa Arango.xlsm).
@@ -747,6 +759,15 @@ let STATE = {
   // dashboard arranquen siempre en el mes en curso sin tener que cambiarlo a mano cada mes.
   invoiceMonth: isoDate(new Date()).slice(0,7),
   adminViewMode:'admin', // 'admin' = vista completa del negocio · 'profesor' = solo su propio trabajo (aplica solo a rol admin)
+  // 25/07/2026: mes que se está viendo en el módulo Horario ('AAAA-MM') — antes el Horario solo
+  // mostraba la semana en curso; ahora muestra el mes completo y se puede navegar a otros meses
+  // (ver renderHorario). Como STATE no se persiste entre sesiones, cada vez que se abre la app
+  // arranca de nuevo en el mes real vigente.
+  horarioMes: isoDate(new Date()).slice(0,7),
+  // 25/07/2026: igual que horarioMes, pero para el módulo Disponibilidad — pedido explícito de
+  // Andersson para poder revisar, DÍAS ANTES de que empiece un mes, los espacios que ya van a
+  // quedar libres por una suspensión temporal registrada con anticipación (ver renderDisponibilidad).
+  disponibilidadMes: isoDate(new Date()).slice(0,7),
 };
 function isAdminOverview(){
   return STATE.user && STATE.user.rol==='admin' && STATE.adminViewMode==='admin';
@@ -769,7 +790,7 @@ const STORAGE_KEY = 'andersson_app_state_v1';
 function saveState(){
   try{
     const data = {
-      REGISTROS, SCHEDULE, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
+      REGISTROS, SCHEDULE, SCHEDULE_TEMPLATE, SCHEDULE_EXPANDED_MONTHS, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
       INVOICE_COUNTERS, savedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -782,6 +803,8 @@ function loadState(){
     const data = JSON.parse(raw);
     if(Array.isArray(data.REGISTROS)) REGISTROS = data.REGISTROS;
     if(Array.isArray(data.SCHEDULE)) SCHEDULE = data.SCHEDULE;
+    if(Array.isArray(data.SCHEDULE_TEMPLATE)) SCHEDULE_TEMPLATE = data.SCHEDULE_TEMPLATE;
+    if(Array.isArray(data.SCHEDULE_EXPANDED_MONTHS)) SCHEDULE_EXPANDED_MONTHS = data.SCHEDULE_EXPANDED_MONTHS;
     if(Array.isArray(data.HISTORIAL)) HISTORIAL = data.HISTORIAL;
     if(Array.isArray(data.NOTIFICACIONES)) NOTIFICACIONES = data.NOTIFICACIONES;
     if(Array.isArray(data.DOCS_ENVIADOS)) DOCS_ENVIADOS = data.DOCS_ENVIADOS;
@@ -794,9 +817,9 @@ function loadState(){
         INVOICE_COUNTERS[cid] = Object.assign({}, INVOICE_COUNTERS[cid], data.INVOICE_COUNTERS[cid]);
       });
     }
-    // El horario guardado trae la fecha calculada en un momento anterior — se recalcula siempre
-    // contra la semana real vigente al cargar, para que nunca quede desincronizado.
-    SCHEDULE.forEach(s=>{ s.fecha = dateForWeekday(s.dia); });
+    // 25/07/2026: ya NO se recalcula s.fecha contra "la semana vigente" al cargar — SCHEDULE ahora
+    // guarda fechas específicas y reales de la expansión mensual (ver "HORARIO MENSUAL" más abajo),
+    // así que cada entrada ya trae la fecha correcta y permanente que le corresponde.
   }catch(e){ console.warn('No se pudo cargar el estado guardado, se usan los datos iniciales:', e); }
 }
 window.addEventListener('beforeunload', saveState);
@@ -916,15 +939,29 @@ function renderSyncStatusUI(){
   });
 }
 
-/* ---------- SINCRONIZACIÓN AUTOMÁTICA DEL HORARIO DESDE DRIVE (22/07/2026 noche) ----------
-   El usuario pidió: "se actualizo los horarios de Karen, pero no esta reflejada en al app requiero
-   que se actulice sin tener que decirte que se actualice" — es decir, el horario (SCHEDULE) ya no
-   debe depender de que alguien le pida a Claude que lo vuelva a leer manualmente desde Drive cada
-   vez que cambia. En vez de eso, la propia app lee directamente el Excel real "Horarios Profesores"
-   (Sheets API) cada vez que se conecta Drive y cada 15 minutos mientras la app sigue abierta, y
-   reconstruye SCHEDULE con lo que encuentre para la semana vigente — sin intervención manual.
-   Si algo falla (sin conexión, estructura inesperada, etc.) NUNCA se borra el horario que ya había
-   — se deja tal cual estaba (el último bueno, guardado en localStorage) y se reintenta más tarde. */
+/* ---------- SINCRONIZACIÓN DEL HORARIO DESDE DRIVE ----------
+   HISTORIA DE ESTA DECISIÓN (para que quede clara la razón del cambio):
+   El 22/07/2026 el usuario pidió que el horario se actualizara solo, sin que nadie tuviera que
+   pedirlo: "se actualizo los horarios de Karen, pero no esta reflejada en al app requiero que se
+   actulice sin tener que decirte que se actualice" — por eso se agregó sincronización automática
+   al abrir la app y cada 15 minutos mientras seguía abierta.
+   El 25/07/2026, tras agregar botones para que el administrador reasigne clases o programe clientes
+   directamente desde la app, ese mismo automatismo se volvió un problema: cada sincronización
+   automática REEMPLAZABA por completo el horario, borrando silenciosamente cualquier cambio hecho
+   desde la app que el Excel de Drive todavía no tuviera. El usuario pidió revertir esa parte:
+   "eso quiere decir que la actualizacion automatica en drive solo la realizaremos cuando el
+   administrador al oprimir un boton de actualizar horario en la app se haga" — es decir, la
+   sincronización PESADA (leer y volver a interpretar el Excel completo de Drive) ahora SOLO ocurre
+   cuando el administrador presiona el botón "Actualizar horario" del módulo Horario. Ya no hay
+   temporizador de 15 minutos, ni sincronización automática al entrar a la app.
+   Para que los profesores (que no tienen ese botón) igual vean el horario que el administrador
+   publicó, se agregó un segundo mecanismo, más liviano: cada vez que el administrador actualiza,
+   también PUBLICA la plantilla resultante en el mismo Google Sheet de horarios (pestaña nueva
+   "_HorarioPublicado", ver apps-script-web-app.gs). Cualquier dispositivo (de cualquier rol) que
+   abra la app simplemente LEE esa plantilla ya publicada — no vuelve a leer ni interpretar el Excel
+   crudo — así que esto no cuenta como "actualización automática en Drive" en el sentido que preocupa
+   al usuario: nadie dispara sin querer una relectura pesada del Excel, y las ediciones del
+   administrador en la app solo se pierden cuando el ADMINISTRADOR mismo decide actualizar. */
 // El ID del Sheet de horarios y sus pestañas por profesor ahora viven SOLO del lado del Apps
 // Script (ver apps-script-web-app.gs) — el navegador ya no necesita conocerlos, solo recibe el
 // resultado ya leído a través de gasCall('schedule').
@@ -1075,40 +1112,146 @@ function buildScheduleFromGridData(data){
   return {nuevo, sinCoincidencia};
 }
 let _lastScheduleSyncAt = null;
-// Antes esto solo corría en el navegador del administrador (era el único que tenía Drive
-// conectado) y el resultado se "publicaba" para que los demás lo leyeran. Ahora, como gasCall()
-// funciona igual para cualquier rol sin ningún login, TODOS los dispositivos (admin, Daniel, Karen)
-// simplemente llaman esto mismo de forma independiente, cada uno directo contra el Apps Script —
-// no hace falta que nadie "publique" nada para los demás.
+
+/* ---------- HORARIO MENSUAL: expandir la plantilla semanal a fechas concretas ----------
+   SCHEDULE_TEMPLATE trae un renglón por horario recurrente (profesor+día de la semana+hora), sin
+   fecha — es el mismo patrón que se repite semana a semana, tal cual está en el Excel de Drive.
+   SCHEDULE (la que de verdad se ve/edita en el módulo Horario) es la expansión de esa plantilla a
+   fechas reales de un mes concreto: por cada renglón de la plantilla, una entrada por cada fecha de
+   ese mes que caiga en ese día de la semana. Cada entrada expandida tiene un id propio
+   (`${idPlantilla}_${fecha}`), así que reasignar o cancelar UNA fecha específica no afecta a las
+   demás semanas del mes — antes (cuando SCHEDULE era la plantilla misma) esto no existía: solo se
+   podía ver/editar la semana en curso.
+   Las cancelaciones se cruzan automáticamente contra REGISTROS (la fuente ya sincronizada entre
+   dispositivos, ver Bug 5 en el contexto del proyecto) al expandir cada mes — así una cancelación
+   registrada por cualquier profesor, en cualquier dispositivo, se ve reflejada en el horario de
+   TODOS los dispositivos apenas expandan ese mes, sin depender de que SCHEDULE mismo esté
+   sincronizado (que no lo está, ver más abajo). */
+function datesForWeekdayInMonth(dia, year, monthIdx0){ // dia: 0=lunes..5=sábado
+  const jsDow = dia + 1; // Date.getDay(): 0=domingo..6=sábado
+  const out = [];
+  const d = new Date(year, monthIdx0, 1);
+  while(d.getMonth()===monthIdx0){
+    if(d.getDay()===jsDow) out.push(isoDate(d));
+    d.setDate(d.getDate()+1);
+  }
+  return out;
+}
+// Si ya existe una cancelación registrada (sincronizada vía REGISTROS) para este cliente en esta
+// fecha exacta, se refleja en la entrada expandida — para que el espacio se vea "Disponible" en el
+// horario sin importar en qué dispositivo se haya hecho la cancelación originalmente.
+function aplicarCancelacionRegistrada_(entry){
+  if(!entry.clienteId) return;
+  const reg = REGISTROS.find(r=>r.clienteId===entry.clienteId && r.fecha===entry.fecha && r.estado==='cancelada');
+  if(!reg) return;
+  entry.estado = 'cancelada';
+  entry.tipoCancelacion = reg.tipoCancelacion;
+  entry.observacion = reg.detalle;
+  entry.fechaHoraCancelacion = reg.fechaHoraCancelacion;
+}
+function expandTemplateForMonth_(year, monthIdx0){
+  const salida = [];
+  SCHEDULE_TEMPLATE.forEach(slot=>{
+    datesForWeekdayInMonth(slot.dia, year, monthIdx0).forEach(fecha=>{
+      const entry = Object.assign({}, slot, {id: slot.id+'_'+fecha, fecha});
+      aplicarCancelacionRegistrada_(entry);
+      salida.push(entry);
+    });
+  });
+  return salida;
+}
+// Expande un mes SOLO si todavía no se había expandido en esta sesión/dispositivo — así, si el
+// administrador reasigna una clase o programa un cliente y luego navega a otro mes y vuelve, esa
+// edición sigue ahí (no se pierde por volver a generar el mes desde la plantilla).
+function ensureMonthExpanded(year, monthIdx0){
+  const mesStr = `${year}-${pad(monthIdx0+1)}`;
+  if(SCHEDULE_EXPANDED_MONTHS.includes(mesStr)) return;
+  SCHEDULE.push(...expandTemplateForMonth_(year, monthIdx0));
+  SCHEDULE_EXPANDED_MONTHS.push(mesStr);
+}
+// Descarta toda la expansión ya generada (y con ella, cualquier reasignación/programación local que
+// no se haya reflejado también en Drive) — se usa cuando llega una plantilla nueva, sea porque el
+// administrador la actualizó desde Drive o porque se acaba de leer la última plantilla publicada.
+function regenerarHorarioCompleto_(){
+  SCHEDULE = [];
+  SCHEDULE_EXPANDED_MONTHS = [];
+}
+function horarioMesPartes_(){
+  const [y,m] = STATE.horarioMes.split('-').map(Number);
+  return {year:y, monthIdx0:m-1};
+}
+// Cambia una fecha concreta a otro día DE LA MISMA SEMANA (lunes a sábado) — se usa al reasignar
+// una clase a otro día: mueve solo esa ocurrencia puntual, no toda la plantilla recurrente.
+function fechaParaDiaEnSemanaDe_(fechaBaseISO, nuevoDia){
+  const d = new Date(fechaBaseISO+'T00:00:00');
+  const diaActual = weekdayIdxFromISO(fechaBaseISO);
+  d.setDate(d.getDate() + (nuevoDia - diaActual));
+  return isoDate(d);
+}
+
+/* ---------- LECTURA AUTOMÁTICA (liviana): trae la última plantilla publicada por el admin ----------
+   Se llama sola al abrir la app, para CUALQUIER rol — a diferencia de syncScheduleFromDrive() (más
+   abajo), esto NO lee ni reinterpreta el Excel maestro de Drive: solo pide la plantilla que el
+   administrador ya dejó guardada la última vez que presionó "Actualizar horario". Es una lectura
+   liviana y segura (no puede "pisar" nada a medio hacer), así que sí tiene sentido que corra sola. */
+async function loadPublishedSchedule(){
+  if(gasConfigured()){
+    try{
+      const data = await gasCall('getPublishedSchedule');
+      if(data && Array.isArray(data.rows) && data.rows.length >= 10){
+        SCHEDULE_TEMPLATE = data.rows;
+        _lastScheduleSyncAt = data.publishedAt || null;
+      }
+    }catch(e){
+      console.warn('loadPublishedSchedule falló (se usa la plantilla que ya había):', e);
+    }
+  }
+  // Si no hay Drive configurado, si nunca se ha publicado nada, o si falló la lectura, se usa la
+  // plantilla que ya hubiera (la precargada de fábrica, o la última guardada en este dispositivo).
+  regenerarHorarioCompleto_();
+  const {year, monthIdx0} = horarioMesPartes_();
+  ensureMonthExpanded(year, monthIdx0);
+  saveState();
+  if(STATE.module==='horario') renderHorario();
+}
+
+/* ---------- ACTUALIZACIÓN MANUAL (pesada): botón "Actualizar horario", SOLO administrador ----------
+   Lee el Excel maestro de Drive, lo reinterpreta de cero, y PUBLICA el resultado (ver
+   publishSchedule en apps-script-web-app.gs) para que los demás dispositivos lo encuentren la
+   próxima vez que abran la app. Ya no corre sola ni al entrar ni cada 15 minutos — ver la nota
+   completa más arriba sobre por qué se cambió esto el 25/07/2026. */
 async function syncScheduleFromDrive(){
-  if(!gasConfigured()) return;
+  if(!gasConfigured()) return {ok:false, motivo:'sin-configurar'};
   try{
     const data = await gasCall('schedule');
-    if(!data) return; // fetch falló (sin red, Apps Script caído, etc.) — se deja el horario actual tal cual
+    if(!data) return {ok:false, motivo:'sin-respuesta'}; // fetch falló (sin red, Apps Script caído, etc.)
     const resultado = buildScheduleFromGridData(data);
     // Salvaguarda: si el parseo encontró muy pocas sesiones (ej. estructura de la hoja cambió de
     // forma inesperada), no se reemplaza el horario existente — mejor un horario desactualizado
     // que uno vacío/roto.
     if(!resultado || resultado.nuevo.length < 10){
       console.warn('syncScheduleFromDrive: muy pocas sesiones detectadas, se conserva el horario actual.');
-      return;
+      return {ok:false, motivo:'muy-pocas-sesiones'};
     }
-    SCHEDULE = resultado.nuevo;
-    SCHEDULE.forEach(s=>{ s.fecha = dateForWeekday(s.dia); });
+    SCHEDULE_TEMPLATE = resultado.nuevo;
     _lastScheduleSyncAt = new Date().toISOString();
     if(resultado.sinCoincidencia.length){
       console.warn('syncScheduleFromDrive: texto sin coincidencia de cliente (se muestra tal cual en el horario):', resultado.sinCoincidencia);
     }
+    regenerarHorarioCompleto_();
+    const {year, monthIdx0} = horarioMesPartes_();
+    ensureMonthExpanded(year, monthIdx0);
     saveState();
-    if(document.getElementById('view-horario')) renderHorario();
+    if(STATE.module==='horario') renderHorario();
+    // Publica la plantilla nueva para que los profesores (y cualquier otro dispositivo del admin)
+    // la vean automáticamente la próxima vez que abran la app — no es fatal si esto falla (queda
+    // guardado localmente igual), pero si falla nadie más ve el cambio hasta el próximo "Actualizar".
+    const publicado = await gasCall('publishSchedule', null, {template: SCHEDULE_TEMPLATE});
+    return {ok:true, publicado: !!(publicado && publicado.ok)};
   }catch(e){
     console.warn('syncScheduleFromDrive falló (se conserva el horario actual):', e);
+    return {ok:false, motivo:'excepcion'};
   }
-}
-let _scheduleSyncTimer = null;
-function _schedulePeriodicScheduleSync(){
-  if(_scheduleSyncTimer) clearInterval(_scheduleSyncTimer);
-  _scheduleSyncTimer = setInterval(()=>{ syncScheduleFromDrive(); }, 15*60*1000); // 15 min, para TODOS los roles
 }
 
 /* ---------- SINCRONIZACIÓN AUTOMÁTICA DE ANAMNESIS Y TARIFAS DESDE DRIVE ----------
@@ -1528,16 +1671,19 @@ function bootApp(startModule){
 
   renderAdminModeToggleUI();
   renderSyncStatusUI();
-  // Ya no depende del rol: la sincronización con Drive (horario + anamnesis/tarifas + registros)
-  // corre igual para el administrador, Daniel y Karen, sin ningún login de por medio (ver
-  // GAS_WEBAPP_URL más arriba). Si el administrador aún no terminó de pegar la URL del Apps Script,
-  // estas llamadas simplemente no hacen nada (gasConfigured()===false) — la app sigue funcionando
-  // 100% local mientras tanto.
-  syncScheduleFromDrive().catch(e=>console.warn('Sync inicial de horario falló:', e));
+  // Ya no depende del rol: la sincronización con Drive (anamnesis/tarifas + registros) corre igual
+  // para el administrador, Daniel y Karen, sin ningún login de por medio (ver GAS_WEBAPP_URL más
+  // arriba). Si el administrador aún no terminó de pegar la URL del Apps Script, estas llamadas
+  // simplemente no hacen nada (gasConfigured()===false) — la app sigue funcionando 100% local
+  // mientras tanto.
+  // 25/07/2026: el horario YA NO se sincroniza pesado (leyendo el Excel crudo) al entrar — solo se
+  // trae la última plantilla ya publicada por el administrador (liviano, ver loadPublishedSchedule).
+  // La lectura pesada del Excel de Drive ahora es SOLO manual, con el botón "Actualizar horario" del
+  // módulo Horario (solo administrador) — ver la nota completa junto a syncScheduleFromDrive.
+  loadPublishedSchedule().catch(e=>console.warn('Carga inicial de horario publicado falló:', e));
   syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
-  _schedulePeriodicScheduleSync();
   _schedulePeriodicClienteDatosSync();
 
   // {push:true}: crea la entrada de historial que separa "login" de "app" (ver nota completa en
@@ -1612,14 +1758,27 @@ function closeAllDrawers(){
   document.getElementById('notifDrawer').classList.remove('show');
   document.getElementById('accountDrawer').classList.remove('show');
 }
+// 25/07/2026: pedido explícito de Andersson — "el profesor solo debe ver las notificaciones que le
+// corresponden a el". Las notificaciones que afectan el horario de un profesor específico (clase
+// reasignada, cliente programado en un espacio disponible, masaje agendado, cancelación
+// registrada) ahora se crean con un campo `profesorId` marcando a quién le pertenece esa
+// notificación. El administrador sigue viendo TODAS las notificaciones (necesita visibilidad
+// completa); un profesor solo ve las suyas (`profesorId` coincide con su propio id) más las
+// notificaciones generales que no le pertenecen a un profesor en particular (ej. "Cuenta de cobro
+// guardada en Drive", que ya se veía igual antes de este cambio y no depende de esta función).
+function notificacionesVisibles_(){
+  if(STATE.user.rol==='admin') return NOTIFICACIONES;
+  return NOTIFICACIONES.filter(n=>!n.profesorId || n.profesorId===STATE.user.id);
+}
 function renderNotifDrawer(){
-  const unread = NOTIFICACIONES.filter(n=>!n.leido).length;
+  const visibles = notificacionesVisibles_();
+  const unread = visibles.filter(n=>!n.leido).length;
   document.getElementById('notifDot').style.display = unread>0 ? 'block' : 'none';
   document.getElementById('notifList').innerHTML = `
     <div style="padding:10px 10px 14px;">
       <button class="btn btn-teal btn-sm btn-block" id="btnSyncDrive"><span style="width:15px;height:15px;display:inline-flex">${ICONS.sync}</span>Sincronizar horario desde Drive</button>
     </div>
-    ${NOTIFICACIONES.map(n=>`
+    ${visibles.map(n=>`
     <div class="notif-item ${n.leido?'read':''}" data-id="${n.id}">
       <span class="dot"></span>
       <div style="flex:1;">
@@ -1674,24 +1833,65 @@ function fmtEdad(c){ return c.edad==='Pendiente' ? 'Edad pendiente' : c.edad+' a
 function fmtCC(c){ return c.cc==='Pendiente' ? 'CC pendiente' : 'CC '+c.cc; }
 function profesorNombre(id){ const p = PROFESORES.find(x=>x.id===id); return p? p.nombre : id; }
 
+const MESES_LARGO = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function mesAnterior_(mesStr){
+  const [y,m] = mesStr.split('-').map(Number);
+  const d = new Date(y, m-2, 1);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+}
+function mesSiguiente_(mesStr){
+  const [y,m] = mesStr.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+}
+// 25/07/2026: el módulo Horario pasó de mostrar solo "la semana en curso" a mostrar el MES completo
+// (con navegación al mes anterior/siguiente) — pedido explícito de Andersson: "el horario que esta
+// en drive debe repetirse por todo el mes eso quiere decir que en la app debe salir todo el mes
+// programado, para cada profesor de esta manera las asignaciones y cambios de horarios se pueden
+// visualizar por todo el mes." Cada fecha del mes se agrupa además por semana (lunes a sábado) para
+// que la vista no sea una sola lista larga de 26 días — ver la nota completa junto a
+// SCHEDULE_TEMPLATE/ensureMonthExpanded sobre cómo se genera esta expansión.
 function renderHorario(){
   const el = document.getElementById('mod-horario');
   const overview = isAdminOverview();
+  const isAdmin = STATE.user.rol==='admin';
   if(overview && STATE.viewProfesorId===null) STATE.viewProfesorId = 'all';
 
-  let list = SCHEDULE.filter(s => overview ? true : s.profesorId===STATE.user.id);
+  const {year, monthIdx0} = horarioMesPartes_();
+  ensureMonthExpanded(year, monthIdx0);
+
+  let list = SCHEDULE.filter(s => s.fecha && s.fecha.startsWith(STATE.horarioMes) && (overview ? true : s.profesorId===STATE.user.id));
   if(overview && STATE.viewProfesorId!=='all') list = list.filter(s=>s.profesorId===STATE.viewProfesorId);
 
-  const byDay = {};
-  list.forEach(s=>{ (byDay[s.dia] = byDay[s.dia]||[]).push(s); });
+  const byFecha = {};
+  list.forEach(s=>{ (byFecha[s.fecha] = byFecha[s.fecha]||[]).push(s); });
+  const fechasOrdenadas = Object.keys(byFecha).sort();
+
+  // Agrupa las fechas del mes en semanas (lunes a sábado) para los sub-encabezados.
+  const semanas = [];
+  fechasOrdenadas.forEach(fechaISO=>{
+    const d = new Date(fechaISO+'T00:00:00');
+    const diff = (d.getDay()+6)%7; // días desde el lunes de esa semana (domingo=6, lunes=0, ...)
+    const lunes = new Date(d); lunes.setDate(d.getDate()-diff);
+    const lunesISO = isoDate(lunes);
+    let semana = semanas.find(s=>s.inicio===lunesISO);
+    if(!semana){ semana = {inicio:lunesISO, fechas:[]}; semanas.push(semana); }
+    semana.fechas.push(fechaISO);
+  });
+  semanas.sort((a,b)=>a.inicio.localeCompare(b.inicio));
+
+  const mesLabel = MESES_LARGO[monthIdx0].replace(/^./, c=>c.toUpperCase()) + ' ' + year;
 
   el.innerHTML = `
-    <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px;">
-      <div class="card" style="padding:12px 16px;display:flex;gap:10px;align-items:center;">
+    <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <div class="card" style="padding:12px 16px;display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-ghost btn-sm" id="btnMesAnterior" title="Mes anterior" style="padding:2px 8px;font-weight:800;">‹</button>
         <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
-        <span style="font-size:13.5px;font-weight:600;">Semana del ${fmtFechaCorta(dateForWeekday(0))} al ${fmtFechaCorta(dateForWeekday(5))}</span>
+        <span style="font-size:13.5px;font-weight:600;min-width:140px;text-align:center;">${mesLabel}</span>
+        <button class="btn btn-ghost btn-sm" id="btnMesSiguiente" title="Mes siguiente" style="padding:2px 8px;font-weight:800;">›</button>
       </div>
-      <div style="display:flex;gap:10px;align-items:center;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnActualizarHorario"><span style="width:14px;height:14px;display:inline-flex">${ICONS.sync}</span>Actualizar horario</button>` : ''}
         ${overview ? `<button class="btn btn-primary btn-sm" id="btnAgendarMasaje" onclick="openAgendarMasajeModal()"><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Agendar masaje</button>` : ''}
         ${overview ? `
         <select id="filtroProfesor" class="card" style="padding:11px 14px;border:1px solid var(--line);font-weight:600;font-size:13.5px;">
@@ -1700,21 +1900,31 @@ function renderHorario(){
         </select>` : ''}
       </div>
     </div>
-    <div style="display:flex;flex-direction:column;gap:22px;">
-      ${DIAS.map((dname,di)=>{
-        const items = (byDay[di]||[]).sort((a,b)=>a.hora.localeCompare(b.hora));
-        if(!items.length) return '';
+    ${isAdmin ? `<div class="section-sub" style="margin-bottom:18px;">${_lastScheduleSyncAt ? `Última actualización desde Drive: ${new Date(_lastScheduleSyncAt).toLocaleString('es-CO')}` : 'Todavía no se ha actualizado el horario desde Drive en este dispositivo.'}</div>` : `<div style="margin-bottom:18px;"></div>`}
+    <div style="display:flex;flex-direction:column;gap:28px;">
+      ${semanas.length ? semanas.map(semana=>{
+        const finSemana = isoDate(new Date(new Date(semana.inicio+'T00:00:00').getTime() + 5*86400000));
         return `
         <div class="fade-up">
-          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
-            <h3 style="font-size:15px;font-weight:800;">${dname}</h3>
-            <span class="section-sub">${fmtFechaCorta(dateForWeekday(di))}</span>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:10px;">
-            ${items.map(s=>claseCardHTML(s)).join('')}
+          <div class="section-sub" style="margin-bottom:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;font-size:11px;">Semana del ${fmtFechaCorta(semana.inicio)} al ${fmtFechaCorta(finSemana)}</div>
+          <div style="display:flex;flex-direction:column;gap:20px;">
+            ${semana.fechas.slice().sort().map(fechaISO=>{
+              const items = byFecha[fechaISO].sort((a,b)=>a.hora.localeCompare(b.hora));
+              const dname = DIAS[weekdayIdxFromISO(fechaISO)];
+              return `
+              <div>
+                <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;">
+                  <h3 style="font-size:15px;font-weight:800;">${dname}</h3>
+                  <span class="section-sub">${fmtFechaCorta(fechaISO)}</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  ${items.map(s=>claseCardHTML(s)).join('')}
+                </div>
+              </div>`;
+            }).join('')}
           </div>
         </div>`;
-      }).join('') || `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay clases programadas para este filtro.</div>`}
+      }).join('') : `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay clases programadas para este filtro en ${mesLabel}.</div>`}
     </div>
   `;
 
@@ -1722,6 +1932,33 @@ function renderHorario(){
     document.getElementById('filtroProfesor').addEventListener('change', e=>{
       STATE.viewProfesorId = e.target.value;
       renderHorario();
+    });
+  }
+  document.getElementById('btnMesAnterior').addEventListener('click', ()=>{
+    STATE.horarioMes = mesAnterior_(STATE.horarioMes);
+    renderHorario();
+  });
+  document.getElementById('btnMesSiguiente').addEventListener('click', ()=>{
+    STATE.horarioMes = mesSiguiente_(STATE.horarioMes);
+    renderHorario();
+  });
+  if(isAdmin){
+    document.getElementById('btnActualizarHorario').addEventListener('click', async function(){
+      const btn = this;
+      const textoOriginal = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = 'Actualizando…';
+      const resultado = await syncScheduleFromDrive();
+      if(resultado && resultado.ok){
+        toast(resultado.publicado ? 'Horario actualizado desde Drive y publicado para todos los dispositivos.' : 'Horario actualizado desde Drive (no se pudo publicar para los demás dispositivos — vuelve a intentarlo en un momento).', 'success');
+        // syncScheduleFromDrive() ya volvió a renderizar Horario (module==='horario'), así que este
+        // botón concreto ya no existe en el DOM — no hace falta restaurarlo.
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = textoOriginal;
+        const motivos = {'sin-configurar':'la sincronización con Drive todavía no está configurada.', 'sin-respuesta':'no se pudo contactar a Drive (revisa tu conexión).', 'muy-pocas-sesiones':'el horario leído de Drive parecía incompleto, así que no se reemplazó el actual.', 'excepcion':'ocurrió un error inesperado.'};
+        toast('No se pudo actualizar el horario: ' + (motivos[resultado && resultado.motivo] || 'intenta de nuevo en un momento.'), 'error');
+      }
     });
   }
   document.querySelectorAll('[data-clase]').forEach(card=>{
@@ -1898,12 +2135,12 @@ function openReasignarModal(id){
     if(s.horaFin){ s.horaFin = calcHoraFin(nuevaHora, 60); }
     s.dia = nuevoDia;
     s.hora = nuevaHora;
-    s.fecha = dateForWeekday(nuevoDia);
+    s.fecha = fechaParaDiaEnSemanaDe_(s.fecha, nuevoDia);
     s.asignadoPorAdmin = true;
     const detalleCambio = (nuevoDia!==anteriorDia || nuevaHora!==anteriorHora)
       ? ` y movida a ${DIAS[nuevoDia]} ${nuevaHora}`
       : '';
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Clase asignada por administrador', cuerpo:`${clienteNombre(s.clienteId)} — ${DIAS[anteriorDia]} ${anteriorHora}, reasignada de ${profesorNombre(anteriorProfesorId)} a ${profesorNombre(nuevoProfesorId)}${detalleCambio} por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase asignada por administrador', cuerpo:`${clienteNombre(s.clienteId)} — ${DIAS[anteriorDia]} ${anteriorHora}, reasignada de ${profesorNombre(anteriorProfesorId)} a ${profesorNombre(nuevoProfesorId)}${detalleCambio} por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderHorario();
@@ -1960,7 +2197,7 @@ function openProgramarSlotModal(id){
             <option value="Virtual">Virtual (Online)</option>
           </select>
         </div>
-        <small>Esta es una sesión única, solo para esta semana. Para un cambio fijo/permanente, actualiza directamente el Excel "Horarios Profesores" en Drive.</small>
+        <small>Esta es una sesión única, solo para esta fecha (${fmtFechaCorta(s.fecha)}). Para un cambio fijo/permanente, actualiza directamente el Excel "Horarios Profesores" en Drive.</small>
       </form>
     </div>
     <div class="modal-foot">
@@ -1984,12 +2221,23 @@ function openProgramarSlotModal(id){
     delete s.observacion;
     delete s.fechaHoraCancelacion;
     s.programadoPorAdmin = true;
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cliente programado en espacio disponible', cuerpo:`${clienteNombre(clienteId)} programado con ${profesorNombre(s.profesorId)} — ${DIAS[s.dia]} ${s.hora} (sesión única), por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cliente programado en espacio disponible', cuerpo:`${clienteNombre(clienteId)} programado con ${profesorNombre(s.profesorId)} — ${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} ${s.hora} (sesión única), por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
-    renderHorario();
+    refrescarVistaHorarioODisponibilidad_();
     toast(`${clienteNombre(clienteId)} programado (sesión única).`, 'success');
   });
+}
+// El botón "Programar cliente" aparece tanto en el módulo Horario (tarjetas de espacio disponible)
+// como en el módulo Disponibilidad (lista de espacios libres por profesor) — pedido explícito de
+// Andersson: "el boton de programas... debe estar tambien en la lista de disponibles y sin
+// importar en cual de los dos se programe salga en el horario". Como ambos leen/escriben la MISMA
+// fila de SCHEDULE (por id), programar desde cualquiera de los dos siempre se refleja en el otro
+// apenas se visite; esta función solo decide cuál de las dos pantallas re-renderizar de inmediato
+// según cuál esté abierta en este momento.
+function refrescarVistaHorarioODisponibilidad_(){
+  if(STATE.module==='horario') renderHorario();
+  else if(STATE.module==='disponibilidad') renderDisponibilidad();
 }
 
 function openAgendarMasajeModal(){
@@ -2016,10 +2264,9 @@ function openAgendarMasajeModal(){
           </select>
         </div>
         <div class="field">
-          <label>Día <span class="req">*</span></label>
-          <select id="mDia" required>
-            ${DIAS.map((dname,di)=>`<option value="${di}">${dname}</option>`).join('')}
-          </select>
+          <label>Fecha <span class="req">*</span></label>
+          <input type="date" id="mFecha" required value="${STATE.horarioMes}-01">
+          <small>El horario funciona de lunes a sábado.</small>
         </div>
         <div class="field">
           <label>Hora <span class="req">*</span></label>
@@ -2041,7 +2288,9 @@ function openAgendarMasajeModal(){
     if(!form.reportValidity()) return;
     const profesorId = document.getElementById('mProfesor').value;
     const clienteId = document.getElementById('mCliente').value;
-    const dia = Number(document.getElementById('mDia').value);
+    const fecha = document.getElementById('mFecha').value;
+    const dia = weekdayIdxFromISO(fecha);
+    if(dia<0){ toast('El horario funciona de lunes a sábado — elige otra fecha.', 'error'); return; }
     const hora = document.getElementById('mHora').value;
     const lugar = document.getElementById('mLugar').value.trim() || 'Domicilio cliente';
     const nuevo = {
@@ -2051,11 +2300,11 @@ function openAgendarMasajeModal(){
       tipo: 'Masaje terapéutico',
       lugar,
       estado: 'pendiente',
-      fecha: dateForWeekday(dia),
+      fecha,
       agendadoPorAdmin: true,
     };
     SCHEDULE.push(nuevo);
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Masaje agendado', cuerpo:`Masaje de ${clienteNombre(clienteId)} con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${hora}, agendado por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:profesorId, titulo:'Masaje agendado', cuerpo:`Masaje de ${clienteNombre(clienteId)} con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${fmtFechaCorta(fecha)} ${hora}, agendado por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderHorario();
@@ -2148,7 +2397,7 @@ function openCancelModal(id){
       REGISTROS.push(cancelacionRegistro);
       { const clienteDelCancel = CLIENTES.find(c=>c.id===s.clienteId); if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
       saveState();
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cancelación registrada', cuerpo:`${clienteNombre(s.clienteId)} — ${CANCEL_META[s.tipoCancelacion].label.toLowerCase()} el ${fmtFechaCorta(s.fecha)}, registrada por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+      NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cancelación registrada', cuerpo:`${clienteNombre(s.clienteId)} — ${CANCEL_META[s.tipoCancelacion].label.toLowerCase()} el ${fmtFechaCorta(s.fecha)}, registrada por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
       renderNotifDrawer();
       closeModal();
       renderHorario();
@@ -2319,67 +2568,84 @@ function weekdayIdxFromISO(fechaISO){ // 0=lunes..5=sábado, -1=domingo (sin age
   return js===0 ? -1 : js-1;
 }
 
-function computeDisponibilidad(){
+// 25/07/2026: pedido explícito de Andersson — poder revisar la disponibilidad de un mes FUTURO
+// (ej. agosto) desde antes de que empiece, no solo la del mes en curso. Recibe el mes a calcular
+// ('AAAA-MM', por defecto STATE.disponibilidadMes): si es el mes real de hoy, se calcula igual que
+// antes ("desde hoy hasta fin de mes", los días que ya pasaron no aportan nada útil); si es un mes
+// distinto (pasado o futuro), se calcula el mes COMPLETO (día 1 al último día), porque no hay un
+// "hoy" dentro de ese mes que sirva de punto de partida. Devuelve también el rango de fechas usado,
+// para que renderDisponibilidad() no tenga que recalcularlo por su cuenta.
+function computeDisponibilidad(mesStr){
+  mesStr = mesStr || STATE.disponibilidadMes;
+  const [y, m] = mesStr.split('-').map(Number);
+  const monthIdx0 = m - 1;
   const hoy = isoDate(new Date());
-  const fin = finDeMes(hoy);
-  const dias = diasEntre(hoy, fin);
-  const semanaActual = {}; [0,1,2,3,4,5].forEach(i=>{ semanaActual[dateForWeekday(i)] = true; });
+  const esMesActual = mesStr === hoy.slice(0,7);
+  const inicio = esMesActual ? hoy : isoDate(new Date(y, monthIdx0, 1));
+  const fin = esMesActual ? finDeMes(hoy) : isoDate(new Date(y, monthIdx0+1, 0));
+  const dias = diasEntre(inicio, fin);
+  // Antes esta función tenía que distinguir "semana en curso" (con estado real) de "semanas
+  // siguientes" (solo proyectadas desde la plantilla, sin poder saber si había alguna cancelación)
+  // porque SCHEDULE solo cubría una semana. Ahora SCHEDULE puede expandirse a cualquier mes con el
+  // estado real ya cruzado contra REGISTROS (ver ensureMonthExpanded), así que ya no hace falta esa
+  // distinción — se asegura el mes pedido (sea el actual o uno futuro) y se lee directo por fecha.
+  ensureMonthExpanded(y, monthIdx0);
   const porProfesor = {};
-  const addSlot = (profesorId, fechaISO, hora, horaFinS, motivo, cliente) => {
-    (porProfesor[profesorId] = porProfesor[profesorId]||[]).push({fecha:fechaISO, hora, horaFin:horaFinS, motivo, cliente});
+  // 25/07/2026: se agrega `id` (el id de la fila expandida en SCHEDULE) a cada espacio — pedido
+  // explícito de Andersson para que el botón "Programar cliente" también pueda ofrecerse desde esta
+  // lista de Disponibilidad, además de desde las tarjetas del módulo Horario (ver renderDisponibilidad).
+  const addSlot = (id, profesorId, fechaISO, hora, horaFinS, motivo, cliente) => {
+    (porProfesor[profesorId] = porProfesor[profesorId]||[]).push({id, fecha:fechaISO, hora, horaFin:horaFinS, motivo, cliente});
   };
   dias.forEach(fechaISO=>{
     const wi = weekdayIdxFromISO(fechaISO);
     if(wi<0) return;
-    if(semanaActual[fechaISO]){
-      // Semana en curso: usamos el estado real de cada clase (cancelaciones puntuales ya registradas).
-      SCHEDULE.filter(s=>s.fecha===fechaISO).forEach(s=>{
-        if(!s.clienteId && s.tipo==='Disponible'){ addSlot(s.profesorId, fechaISO, s.hora, s.horaFin, 'Bloque disponible (Drive)', null); return; }
-        if(!s.clienteId) return;
-        if(s.estado==='cancelada'){ addSlot(s.profesorId, fechaISO, s.hora, s.horaFin, CANCEL_META[s.tipoCancelacion]?.label||'Cancelada', clienteNombre(s.clienteId)); return; }
-        const susp = suspensionActiva(s.clienteId, fechaISO);
-        if(susp) addSlot(s.profesorId, fechaISO, s.hora, s.horaFin, SUSPENSION_META[susp.motivo].label, clienteNombre(s.clienteId));
-      });
-    } else {
-      // Semanas siguientes del mes: se proyecta el mismo horario semanal (plantilla por día de la semana);
-      // solo sabemos con certeza los espacios libres por una suspensión ya registrada con anticipación.
-      SCHEDULE.filter(s=>s.dia===wi).forEach(s=>{
-        if(!s.clienteId && s.tipo==='Disponible'){ addSlot(s.profesorId, fechaISO, s.hora, s.horaFin, 'Bloque disponible (Drive)', null); return; }
-        if(!s.clienteId) return;
-        const susp = suspensionActiva(s.clienteId, fechaISO);
-        if(susp) addSlot(s.profesorId, fechaISO, s.hora, s.horaFin, SUSPENSION_META[susp.motivo].label, clienteNombre(s.clienteId));
-      });
-    }
+    SCHEDULE.filter(s=>s.fecha===fechaISO).forEach(s=>{
+      if(!s.clienteId && s.tipo==='Disponible'){ addSlot(s.id, s.profesorId, fechaISO, s.hora, s.horaFin, 'Bloque disponible (Drive)', null); return; }
+      if(!s.clienteId) return;
+      if(s.estado==='cancelada'){ addSlot(s.id, s.profesorId, fechaISO, s.hora, s.horaFin, CANCEL_META[s.tipoCancelacion]?.label||'Cancelada', clienteNombre(s.clienteId)); return; }
+      const susp = suspensionActiva(s.clienteId, fechaISO);
+      if(susp) addSlot(s.id, s.profesorId, fechaISO, s.hora, s.horaFin, SUSPENSION_META[susp.motivo].label, clienteNombre(s.clienteId));
+    });
   });
   Object.values(porProfesor).forEach(arr=>arr.sort((a,b)=> a.fecha===b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)));
-  return porProfesor;
+  return {porProfesor, inicio, fin, esMesActual};
 }
 
 function renderDisponibilidad(){
   const el = document.getElementById('mod-disponibilidad');
   const hoy = isoDate(new Date());
-  const fin = finDeMes(hoy);
-  const data = computeDisponibilidad();
+  const {porProfesor: data, inicio, fin, esMesActual} = computeDisponibilidad();
   const totalSlots = Object.values(data).reduce((a,arr)=>a+arr.length,0);
+  const [yMes, mMes] = STATE.disponibilidadMes.split('-').map(Number);
+  const mesLabel = MESES_LARGO[mMes-1].replace(/^./, c=>c.toUpperCase()) + ' ' + yMes;
 
+  // 25/07/2026: se agrega navegación de mes (‹ ›) — pedido explícito de Andersson para poder revisar
+  // días antes de que empiece un mes qué espacios van a quedar libres por una suspensión temporal ya
+  // registrada (ej. una cliente que avisa hoy que en agosto no toma clases). No se permite retroceder
+  // antes del mes real de hoy — un reporte de disponibilidad de un mes ya pasado no aporta nada útil.
+  const mesRealHoy = hoy.slice(0,7);
+  const puedeRetroceder = STATE.disponibilidadMes > mesRealHoy;
   el.innerHTML = `
     <div class="card fade-up" style="padding:16px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;background:var(--teal-light);border:none;">
       <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.mail}</span>
       <div style="font-size:12.5px;color:var(--teal-dark);line-height:1.6;">
-        Vista previa de cómo se vería el correo diario de disponibilidad. Por ahora se ve aquí en la app — cuando la publiquemos con un servidor real, este mismo cálculo se puede conectar para que te llegue por correo automáticamente todos los días. El botón de abajo simula ese envío.
+        Vista previa de cómo se vería el correo diario de disponibilidad. Por ahora se ve aquí en la app — cuando la publiquemos con un servidor real, este mismo cálculo se puede conectar para que te llegue por correo automáticamente todos los días. El botón de abajo simula ese envío. Usa las flechas para adelantarte a un mes futuro (ej. si una cliente ya avisó que no toma clases el próximo mes) sin tener que esperar a que empiece.
       </div>
     </div>
     <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <div class="card" style="padding:12px 16px;display:flex;gap:10px;align-items:center;">
+      <div class="card" style="padding:12px 16px;display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-ghost btn-sm" id="btnDispMesAnterior" title="Mes anterior" ${puedeRetroceder?'':'disabled'} style="padding:2px 8px;font-weight:800;${puedeRetroceder?'':'opacity:.35;cursor:not-allowed;'}">‹</button>
         <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
-        <span style="font-size:13.5px;font-weight:600;">Disponibilidad desde hoy (${fmtFechaCorta(hoy)}) hasta fin de mes (${fmtFechaCorta(fin)})</span>
+        <span style="font-size:13.5px;font-weight:600;min-width:170px;text-align:center;">${esMesActual ? `Desde hoy (${fmtFechaCorta(inicio)}) hasta fin de ${mesLabel.toLowerCase()}` : `${mesLabel} completo (${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)})`}</span>
+        <button class="btn btn-ghost btn-sm" id="btnDispMesSiguiente" title="Mes siguiente" style="padding:2px 8px;font-weight:800;">›</button>
       </div>
       <button class="btn btn-primary btn-sm" id="btnEnviarDisponibilidad"><span style="width:14px;height:14px;display:inline-flex">${ICONS.mail}</span>Simular envío por correo</button>
     </div>
     <div class="card" style="padding:12px 14px;margin-bottom:16px;background:var(--paper-dim);border:none;font-size:12px;color:var(--ink-fade);">
-      Los días de la semana en curso usan las cancelaciones y suspensiones reales ya registradas. Los días de semanas siguientes dentro del mes se proyectan asumiendo que el horario semanal de cada profesor se repite igual — ahí solo se muestran los espacios que ya sabemos con certeza que van a quedar libres por una suspensión registrada con anticipación (no se pueden adivinar cancelaciones puntuales que todavía no han pasado).
+      Se muestran los espacios que ya se saben con certeza que van a quedar libres: por un bloque "Disponible" del Excel de Drive, por una cancelación de cliente ya registrada, o por una suspensión temporal ya registrada con anticipación (vacaciones, enfermedad, etc.) — sin importar si la fecha es esta semana, otra semana del mes, o un mes futuro. Lo único que esta lista no puede anticipar son cancelaciones puntuales que todavía no han pasado (obviamente, nadie ha avisado algo que no ha ocurrido).
     </div>
-    ${totalSlots===0 ? `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay espacios disponibles por cancelaciones ni suspensiones en lo que resta del mes.</div>` :
+    ${totalSlots===0 ? `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay espacios disponibles por cancelaciones ni suspensiones ${esMesActual?'en lo que resta del mes':'en '+mesLabel.toLowerCase()}.</div>` :
       PROFESORES.map(p=>{
         const slots = data[p.id]||[];
         if(!slots.length) return '';
@@ -2392,6 +2658,7 @@ function renderDisponibilidad(){
                 <div style="width:130px;flex-shrink:0;font-size:12.5px;font-weight:700;">${fmtFechaCorta(sl.fecha)}</div>
                 <div style="width:100px;flex-shrink:0;font-size:12.5px;font-weight:700;color:var(--success);">${sl.hora}${sl.horaFin?'–'+sl.horaFin:''}</div>
                 <div style="flex:1;font-size:12.5px;color:var(--ink-fade);">${sl.motivo}${sl.cliente?' · antes: '+sl.cliente:''}</div>
+                <button class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11.5px;flex-shrink:0;" data-programar-disp="${sl.id}">Programar cliente</button>
               </div>`).join('')}
           </div>
         </div>`;
@@ -2400,9 +2667,24 @@ function renderDisponibilidad(){
   `;
   document.getElementById('btnEnviarDisponibilidad').addEventListener('click', ()=>{
     toast('Correo de disponibilidad enviado a anderssonpersonaltrainer@gmail.com (simulado)', 'success');
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Disponibilidad enviada', cuerpo:`Reporte de disponibilidad del ${fmtFechaCorta(hoy)} al ${fmtFechaCorta(fin)} enviado a administrador.`, hora:'Ahora', leido:false});
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Disponibilidad enviada', cuerpo:`Reporte de disponibilidad del ${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)} enviado a administrador.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     saveState();
+  });
+  if(puedeRetroceder){
+    document.getElementById('btnDispMesAnterior').addEventListener('click', ()=>{
+      STATE.disponibilidadMes = mesAnterior_(STATE.disponibilidadMes);
+      renderDisponibilidad();
+    });
+  }
+  document.getElementById('btnDispMesSiguiente').addEventListener('click', ()=>{
+    STATE.disponibilidadMes = mesSiguiente_(STATE.disponibilidadMes);
+    renderDisponibilidad();
+  });
+  // 25/07/2026: mismo botón/flujo "Programar cliente" que ya existe en las tarjetas de espacio
+  // disponible del módulo Horario (openProgramarSlotModal) — aquí solo se dispara desde esta lista.
+  document.querySelectorAll('[data-programar-disp]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openProgramarSlotModal(btn.dataset.programarDisp));
   });
 }
 
@@ -2415,7 +2697,7 @@ let selectedClienteRegistro = null;
 let registroClienteSearch = '';
 
 function clientesDeProfesor(profesorId){
-  const ids = new Set([...SCHEDULE.filter(s=>s.profesorId===profesorId).map(s=>s.clienteId), ...REGISTROS.filter(r=>r.profesorId===profesorId).map(r=>r.clienteId)]);
+  const ids = new Set([...SCHEDULE_TEMPLATE.filter(s=>s.profesorId===profesorId).map(s=>s.clienteId), ...REGISTROS.filter(r=>r.profesorId===profesorId).map(r=>r.clienteId)]);
   return CLIENTES.filter(c=>ids.has(c.id));
 }
 
@@ -2576,12 +2858,12 @@ function renderTablaRegistro(){
         </td>
       </tr>`;}).join('') : `<tr><td colspan="15" style="text-align:center;color:var(--ink-fade);padding:30px;">Sin registros aún para este cliente.</td></tr>`}
     </tbody>
-    ${rows.length ? `
+    ${rows.length && isAdmin ? `
     <tfoot>
       <tr>
         <td colspan="15" style="background:var(--paper-dim);font-weight:700;font-size:12.5px;padding:10px 12px;border-top:1.5px solid var(--line);">
           <div>Subtotal: ${totalSesiones} ${totalSesiones===1?'sesión':'sesiones'} dictada${totalSesiones===1?'':'s'} · ${totalCancelaciones} cancelaci${totalCancelaciones===1?'ón':'ones'}${desgloseCancel?` (${desgloseCancel})`:''}</div>
-          ${isAdmin ? `<div style="margin-top:3px;color:var(--ink-soft);">${valorGenerado!=null ? `Valor generado para cobrar: <span style="color:var(--ink);">${money(valorGenerado)}</span>` : `Valor no disponible — la tarifa de ${clienteReg?clienteReg.nombre:'este cliente'} no está verificada contra Drive.`}</div>` : ''}
+          <div style="margin-top:3px;color:var(--ink-soft);">${valorGenerado!=null ? `Valor generado para cobrar: <span style="color:var(--ink);">${money(valorGenerado)}</span>` : `Valor no disponible — la tarifa de ${clienteReg?clienteReg.nombre:'este cliente'} no está verificada contra Drive.`}</div>
         </td>
       </tr>
     </tfoot>` : ''}
@@ -4019,7 +4301,7 @@ function renderClientes(){
           </tr></thead>
           <tbody>
             ${PROFESORES.map(p=>{
-              const clasesSemana = SCHEDULE.filter(s=>s.profesorId===p.id).length;
+              const clasesSemana = SCHEDULE_TEMPLATE.filter(s=>s.profesorId===p.id).length;
               const cancelacionesMes = REGISTROS.filter(r=>r.profesorId===p.id && r.fecha && r.fecha.startsWith(STATE.invoiceMonth) && r.estado==='cancelada').length;
               const horasSemana = clasesSemana; // 1h estimada por clase (duración no registrada aún)
               const { valorClases, valorPerdida } = resumenValorProfesorMes(p.id, STATE.invoiceMonth);
@@ -4172,7 +4454,7 @@ function openClienteModal(id){
 function openCerrarClienteModal(clienteId){
   const c = CLIENTES.find(x=>x.id===clienteId);
   if(!c) return;
-  const clasesFuturas = SCHEDULE.filter(s=>s.clienteId===clienteId).length;
+  const clasesFuturas = SCHEDULE_TEMPLATE.filter(s=>s.clienteId===clienteId).length;
   openModal(`
     <div class="modal-head">
       <h3>Cerrar cliente definitivamente</h3>
@@ -4209,7 +4491,8 @@ function cerrarClienteDefinitivo(clienteId, motivo){
   const c = CLIENTES.find(x=>x.id===clienteId);
   if(!c) return;
   c.activo = false;
-  const eliminadas = SCHEDULE.filter(s=>s.clienteId===clienteId).length;
+  const eliminadas = SCHEDULE_TEMPLATE.filter(s=>s.clienteId===clienteId).length;
+  for(let i=SCHEDULE_TEMPLATE.length-1;i>=0;i--){ if(SCHEDULE_TEMPLATE[i].clienteId===clienteId) SCHEDULE_TEMPLATE.splice(i,1); }
   for(let i=SCHEDULE.length-1;i>=0;i--){ if(SCHEDULE[i].clienteId===clienteId) SCHEDULE.splice(i,1); }
   NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cliente cerrado definitivamente', cuerpo:`${c.nombre} fue marcado como cliente antiguo por ${STATE.user.nombre}${motivo?': "'+motivo+'"':''}. Se retiraron ${eliminadas} clase${eliminadas===1?'':'s'} del horario recurrente.`, hora:'Ahora', leido:false});
   renderNotifDrawer();
