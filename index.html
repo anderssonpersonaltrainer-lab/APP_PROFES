@@ -1758,6 +1758,11 @@ function claseCardHTML(s){
   // Bloques especiales leídos tal cual de Drive (no son una clase de un cliente): Desplazamiento, Disponible, Almuerzo.
   if(!s.clienteId && BLOQUE_ESPECIAL_META[s.tipo]){
     const m = BLOQUE_ESPECIAL_META[s.tipo];
+    // 25/07/2026: pedido explícito de Andersson — el admin necesita poder llenar un espacio
+    // "Disponible" del horario maestro con un cliente, igual que ya puede "Reasignar profesor" en
+    // una clase programada. Solo se ofrece en los bloques "Disponible" (no en Desplazamiento/
+    // Almuerzo, que no son espacios de clase).
+    const puedeProgramar = isAdminOverview() && m.label==='Disponible';
     return `
     <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:14px;background:${m.bg};border:1.5px dashed var(--line);">
       <div style="width:54px;flex-shrink:0;text-align:center;">
@@ -1768,6 +1773,7 @@ function claseCardHTML(s){
         <div style="font-weight:700;font-size:14.5px;color:${m.color};">${m.icon} ${m.label}</div>
         ${isAdminOverview()?`<div class="section-sub" style="margin-top:1px;">${profesorNombre(s.profesorId)}</div>`:''}
       </div>
+      ${puedeProgramar?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;border-color:var(--success);color:var(--success);" data-programar="${s.id}" onclick="openProgramarSlotModal('${s.id}')">Programar cliente</button>`:''}
     </div>`;
   }
   const cancelada = s.estado==='cancelada';
@@ -1786,7 +1792,10 @@ function claseCardHTML(s){
         <div class="section-sub" style="margin-top:1px;">${s.tipo} · ${s.lugar}${isAdminOverview()?' · '+profesorNombre(s.profesorId):''}</div>
         <div style="margin-top:6px;font-size:12px;color:var(--ink-fade);">Antes: ${clienteNombre(s.clienteId)} — ${meta.label.toLowerCase()} el ${s.fechaHoraCancelacion? new Date(s.fechaHoraCancelacion).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''} · "${s.observacion||''}"</div>
       </div>
-      <span class="pill" style="background:var(--success-light);color:var(--success);">Disponible</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        <span class="pill" style="background:var(--success-light);color:var(--success);">Disponible</span>
+        ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;border-color:var(--success);color:var(--success);" data-programar="${s.id}" onclick="event.stopPropagation();openProgramarSlotModal('${s.id}')">Programar cliente</button>`:''}
+      </div>
     </div>`;
   }
   // Si el cliente tiene una suspensión temporal activa que cubre esta fecha (vacaciones/enfermedad/otro),
@@ -1805,13 +1814,17 @@ function claseCardHTML(s){
         <div class="section-sub" style="margin-top:1px;">${s.tipo} · ${s.lugar}${isAdminOverview()?' · '+profesorNombre(s.profesorId):''}</div>
         <div style="margin-top:6px;font-size:12px;color:var(--ink-fade);">Antes: ${clienteNombre(s.clienteId)} — suspendido por ${sm.label.toLowerCase()} (${fmtFechaCorta(susp.fechaInicio)} al ${fmtFechaCorta(susp.fechaFin)})${susp.observacion?' · "'+susp.observacion+'"':''}</div>
       </div>
-      <span class="pill ${sm.cls}">${sm.label}</span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        <span class="pill ${sm.cls}">${sm.label}</span>
+        ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;border-color:var(--success);color:var(--success);" data-programar="${s.id}" onclick="openProgramarSlotModal('${s.id}')">Programar cliente</button>`:''}
+      </div>
     </div>`;
   }
   const reasignada = !!s.asignadoPorAdmin;
+  const programada = !!s.programadoPorAdmin;
   const cat = categoriaSesion(s.tipo);
   return `
-  <div class="card" data-clase="${s.id}" style="padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow .15s,border-color .15s;${reasignada?'border-color:var(--accent);':''}" onmouseover="this.style.boxShadow='var(--shadow-md)'" onmouseout="this.style.boxShadow='var(--shadow-sm)'">
+  <div class="card" data-clase="${s.id}" style="padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow .15s,border-color .15s;${reasignada||programada?'border-color:var(--accent);':''}" onmouseover="this.style.boxShadow='var(--shadow-md)'" onmouseout="this.style.boxShadow='var(--shadow-sm)'">
     <div style="width:66px;flex-shrink:0;text-align:center;">
       <div style="font-weight:800;font-size:13.5px;">${s.hora}${s.horaFin?'–'+s.horaFin:''}</div>
     </div>
@@ -1823,6 +1836,7 @@ function claseCardHTML(s){
         <span class="pill" style="background:${cat.bg};color:${cat.color};font-weight:700;">${cat.label}</span>
       </div>
       ${reasignada?`<div style="margin-top:4px;font-size:11.5px;font-weight:700;color:var(--accent);">Asignación por administrador${s.profesorOriginalId?' · antes: '+profesorNombre(s.profesorOriginalId):''}</div>`:''}
+      ${programada?`<div style="margin-top:4px;font-size:11.5px;font-weight:700;color:var(--accent);">Programado por administrador (sesión única)</div>`:''}
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
       <span class="pill pill-teal">Programada</span>
@@ -1894,6 +1908,87 @@ function openReasignarModal(id){
     closeModal();
     renderHorario();
     toast(`Clase asignada a ${profesorNombre(nuevoProfesorId)}.`, 'success');
+  });
+}
+
+// 25/07/2026: pedido explícito de Andersson — el administrador necesita poder llenar un espacio
+// "Disponible" del horario (ya sea el bloque original de Drive, o uno que quedó libre por una
+// cancelación o una suspensión temporal) con un cliente nuevo. Reutiliza el mismo SCHEDULE en
+// memoria — igual que "Reasignar profesor" — así que la vista se actualiza de inmediato para
+// todos los roles.
+//
+// 25/07/2026 (mismo día, ajuste pedido tras explicarle la limitación): la primera versión ofrecía
+// elegir entre "sesión única" y "sesión fija", pero Andersson decidió que los cambios FIJOS/
+// permanentes los hace directamente en el Excel "Horarios Profesores" de Drive (que es, de todos
+// modos, la única forma de que un cambio sobreviva la sincronización automática — ver nota más
+// abajo). Por eso se quitó la opción "sesión fija": este botón ahora SOLO programa una sesión
+// única para la semana actual, sin desplegable de por medio.
+//
+// LIMITACIÓN (la misma que ya existía para "Reasignar profesor" y para las cancelaciones, y que
+// sigue aplicando aquí): el horario semanal se reemplaza por completo cada vez que la app
+// sincroniza con el Excel maestro de Drive (al entrar y luego cada ~15 min). Para una "sesión
+// única" esto es justo el comportamiento esperado — se supone que solo debe durar esta semana, así
+// que no hace falta nada más. Si en el futuro se necesitara un cambio verdaderamente permanente
+// hecho desde la app (no desde Drive), habría que guardarlo en un lugar persistente (un Sheet
+// nuevo vía Apps Script) y reaplicarlo después de cada sync — no es lo que se pidió hoy.
+function openProgramarSlotModal(id){
+  const s = SCHEDULE.find(x=>x.id===id);
+  if(!s) return;
+  const clientesActivos = CLIENTES.filter(c=>c.activo!==false).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  openModal(`
+    <div class="modal-head">
+      <h3>Programar cliente en espacio disponible</h3>
+      <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
+    </div>
+    <div class="modal-body">
+      <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
+        <div style="font-weight:700;">${profesorNombre(s.profesorId)}</div>
+        <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora}${s.horaFin?'–'+s.horaFin:''}</div>
+      </div>
+      <form id="programarForm">
+        <div class="field">
+          <label>Cliente <span class="req">*</span></label>
+          <select id="pCliente" required>
+            <option value="">Selecciona un cliente…</option>
+            ${clientesActivos.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Modalidad <span class="req">*</span></label>
+          <select id="pModalidad" required>
+            <option value="Presencial">Presencial</option>
+            <option value="Virtual">Virtual (Online)</option>
+          </select>
+        </div>
+        <small>Esta es una sesión única, solo para esta semana. Para un cambio fijo/permanente, actualiza directamente el Excel "Horarios Profesores" en Drive.</small>
+      </form>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmProgramar">Programar</button>
+    </div>
+  `);
+  document.getElementById('btnConfirmProgramar').addEventListener('click', ()=>{
+    const form = document.getElementById('programarForm');
+    if(!form.reportValidity()) return;
+    const clienteId = document.getElementById('pCliente').value;
+    const modalidad = document.getElementById('pModalidad').value;
+    s.clienteId = clienteId;
+    s.tipo = modalidad==='Virtual' ? 'Entrenamiento adaptado Online' : 'Entrenamiento adaptado Presencial';
+    s.lugar = modalidad==='Virtual' ? 'Online' : 'Domicilio cliente';
+    if(!s.horaFin) s.horaFin = calcHoraFin(s.hora, 60);
+    // Limpia cualquier rastro de que este espacio venía de una cancelación — ya se está asignando
+    // a un cliente nuevo, así que "cancelada" ya no aplica a este horario.
+    s.estado = 'pendiente';
+    delete s.tipoCancelacion;
+    delete s.observacion;
+    delete s.fechaHoraCancelacion;
+    s.programadoPorAdmin = true;
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cliente programado en espacio disponible', cuerpo:`${clienteNombre(clienteId)} programado con ${profesorNombre(s.profesorId)} — ${DIAS[s.dia]} ${s.hora} (sesión única), por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    renderNotifDrawer();
+    closeModal();
+    renderHorario();
+    toast(`${clienteNombre(clienteId)} programado (sesión única).`, 'success');
   });
 }
 
