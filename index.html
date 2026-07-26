@@ -205,21 +205,23 @@ a{color:inherit;}
 
 .main-col{flex:1;min-width:0;display:flex;flex-direction:column;}
 .topbar{
-  display:flex;align-items:center;justify-content:space-between;padding:16px 28px;
+  /* 25/07/2026: reducido a pedido explícito de Andersson ("la franja amarilla clara mas reducida")
+     — antes 16px 28px, hacía la franja superior más alta de lo necesario. */
+  display:flex;align-items:center;justify-content:space-between;padding:10px 28px;
   background:rgba(250,247,242,.9);backdrop-filter:blur(10px);position:sticky;top:0;z-index:40;
   border-bottom:1px solid var(--line);
 }
-.topbar h1{font-size:19px;font-weight:800;letter-spacing:-.01em;}
-.topbar .section-sub{margin-top:0;}
+.topbar h1{font-size:17px;font-weight:800;letter-spacing:-.01em;}
+.topbar .section-sub{margin-top:0;font-size:12px;}
 .topbar-actions{display:flex;align-items:center;gap:10px;}
 .icon-btn{
-  width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:var(--card);border:1px solid var(--line);position:relative;transition:all .15s;
 }
 .icon-btn:hover{border-color:var(--accent);}
-.icon-btn svg{width:19px;height:19px;}
+.icon-btn svg{width:17px;height:17px;}
 .notif-dot{
-  position:absolute;top:8px;right:9px;width:9px;height:9px;border-radius:50%;background:var(--accent);
+  position:absolute;top:6px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--accent);
   border:2px solid var(--paper);animation:pulse 2s infinite;
 }
 .mobile-menu-btn{display:none;}
@@ -287,7 +289,7 @@ tr:last-child td{border-bottom:none;}
 @media (max-width:900px){
   .sidebar{display:none;}
   main{padding:18px 16px 100px;}
-  .topbar{padding:14px 16px;}
+  .topbar{padding:9px 16px;}
   /* En celular el topbar es angosto: el estado de Google Drive y el selector Administrador/Profesor
      (antes aquí, empujaban el botón de cuenta fuera de la pantalla) se mueven al panel "Mi cuenta"
      (#btnAccount → #accountDrawer), que ya los muestra completos y sin recortes — así se libera
@@ -768,6 +770,11 @@ let STATE = {
   // Andersson para poder revisar, DÍAS ANTES de que empiece un mes, los espacios que ya van a
   // quedar libres por una suspensión temporal registrada con anticipación (ver renderDisponibilidad).
   disponibilidadMes: isoDate(new Date()).slice(0,7),
+  // 25/07/2026: semana seleccionada dentro del mes de Horario ('AAAA-MM-DD', el lunes de esa
+  // semana), o null para ver todas las semanas del mes juntas — pedido explícito de Andersson para
+  // poder filtrar a una sola semana y no tener que desplazarse por todo el mes (ver renderHorario).
+  // Se reinicia a null cada vez que se cambia de mes (ver mesAnterior_/mesSiguiente_ en renderHorario).
+  horarioSemana: null,
 };
 function isAdminOverview(){
   return STATE.user && STATE.user.rol==='admin' && STATE.adminViewMode==='admin';
@@ -1880,7 +1887,31 @@ function renderHorario(){
   });
   semanas.sort((a,b)=>a.inicio.localeCompare(b.inicio));
 
+  // 25/07/2026: pedido explícito de Andersson — debajo del mes, un selector de semanas para poder
+  // ver solo los días de una semana puntual en vez de todo el mes de una vez. Se calcula sobre TODOS
+  // los días del mes (no solo los que ya tienen clases en `semanas` arriba), para que el selector de
+  // semanas se vea igual sin importar el filtro de profesor activo.
+  const primerDiaISO = isoDate(new Date(year, monthIdx0, 1));
+  const ultimoDiaISO = isoDate(new Date(year, monthIdx0+1, 0));
+  const semanasDelMes = [];
+  diasEntre(primerDiaISO, ultimoDiaISO).forEach(fechaISO=>{
+    const d = new Date(fechaISO+'T00:00:00');
+    const diff = (d.getDay()+6)%7;
+    const lunes = new Date(d); lunes.setDate(d.getDate()-diff);
+    const lunesISO = isoDate(lunes);
+    if(!semanasDelMes.find(s=>s.inicio===lunesISO)){
+      const fin = new Date(lunes); fin.setDate(lunes.getDate()+5);
+      semanasDelMes.push({inicio:lunesISO, fin:isoDate(fin)});
+    }
+  });
+  semanasDelMes.sort((a,b)=>a.inicio.localeCompare(b.inicio));
+  const fmtCortaSinAnio = fechaISO=>{ const [,m,dd] = fechaISO.split('-'); return `${dd}/${m}`; };
+
+  const semanasVisibles = STATE.horarioSemana ? semanas.filter(s=>s.inicio===STATE.horarioSemana) : semanas;
+
   const mesLabel = MESES_LARGO[monthIdx0].replace(/^./, c=>c.toUpperCase()) + ' ' + year;
+  const semanaSelData = STATE.horarioSemana ? semanasDelMes.find(s=>s.inicio===STATE.horarioSemana) : null;
+  const semanaSelLabel = semanaSelData ? `la semana del ${fmtFechaCorta(semanaSelData.inicio)} al ${fmtFechaCorta(semanaSelData.fin)}` : mesLabel;
 
   el.innerHTML = `
     <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:6px;">
@@ -1900,9 +1931,13 @@ function renderHorario(){
         </select>` : ''}
       </div>
     </div>
+    <div class="fade-up" style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+      <button class="btn btn-sm" data-semana-sel="" style="padding:5px 13px;font-size:11.5px;font-weight:700;${!STATE.horarioSemana ? 'background:var(--accent);color:#fff;' : 'background:var(--paper-dim);color:var(--ink-soft);'}">Todo el mes</button>
+      ${semanasDelMes.map(sw=>`<button class="btn btn-sm" data-semana-sel="${sw.inicio}" style="padding:5px 13px;font-size:11.5px;font-weight:700;${STATE.horarioSemana===sw.inicio ? 'background:var(--accent);color:#fff;' : 'background:var(--paper-dim);color:var(--ink-soft);'}">${fmtCortaSinAnio(sw.inicio)}–${fmtCortaSinAnio(sw.fin)}</button>`).join('')}
+    </div>
     ${isAdmin ? `<div class="section-sub" style="margin-bottom:18px;">${_lastScheduleSyncAt ? `Última actualización desde Drive: ${new Date(_lastScheduleSyncAt).toLocaleString('es-CO')}` : 'Todavía no se ha actualizado el horario desde Drive en este dispositivo.'}</div>` : `<div style="margin-bottom:18px;"></div>`}
     <div style="display:flex;flex-direction:column;gap:28px;">
-      ${semanas.length ? semanas.map(semana=>{
+      ${semanasVisibles.length ? semanasVisibles.map(semana=>{
         const finSemana = isoDate(new Date(new Date(semana.inicio+'T00:00:00').getTime() + 5*86400000));
         return `
         <div class="fade-up">
@@ -1924,7 +1959,7 @@ function renderHorario(){
             }).join('')}
           </div>
         </div>`;
-      }).join('') : `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay clases programadas para este filtro en ${mesLabel}.</div>`}
+      }).join('') : `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay clases programadas para este filtro en ${semanaSelLabel}.</div>`}
     </div>
   `;
 
@@ -1936,11 +1971,19 @@ function renderHorario(){
   }
   document.getElementById('btnMesAnterior').addEventListener('click', ()=>{
     STATE.horarioMes = mesAnterior_(STATE.horarioMes);
+    STATE.horarioSemana = null; // al cambiar de mes, la semana elegida ya no aplica
     renderHorario();
   });
   document.getElementById('btnMesSiguiente').addEventListener('click', ()=>{
     STATE.horarioMes = mesSiguiente_(STATE.horarioMes);
+    STATE.horarioSemana = null;
     renderHorario();
+  });
+  document.querySelectorAll('[data-semana-sel]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      STATE.horarioSemana = btn.dataset.semanaSel || null;
+      renderHorario();
+    });
   });
   if(isAdmin){
     document.getElementById('btnActualizarHorario').addEventListener('click', async function(){
