@@ -273,6 +273,44 @@ th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04e
 td{padding:12px;border-bottom:1px solid var(--line);font-size:13.5px;}
 tr:last-child td{border-bottom:none;}
 .table-wrap{overflow-x:auto;border-radius:var(--radius-md);}
+/* Utilidad reutilizable: convierte una tabla normal en "tarjetas" apiladas en celular, para que
+   ninguna columna quede recortada ni haya que hacer scroll horizontal a ciegas. Cada <td> debe
+   llevar data-label="Nombre de columna" (igual al texto del <th> correspondiente); en pantallas
+   angostas el thead se oculta y cada fila pasa a ser una tarjeta con etiqueta+valor por línea. */
+@media (max-width:680px){
+  table.mobile-cards thead{display:none;}
+  table.mobile-cards, table.mobile-cards tbody, table.mobile-cards tr, table.mobile-cards td{display:block;width:100%;}
+  table.mobile-cards tr{border:1px solid var(--line);border-radius:var(--radius-md);padding:10px 12px;margin-bottom:10px;background:var(--card);}
+  table.mobile-cards td{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line);text-align:right;}
+  table.mobile-cards td:last-child{border-bottom:none;}
+  table.mobile-cards td::before{content:attr(data-label);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-fade);text-align:left;flex-shrink:0;}
+  table.mobile-cards td[colspan]{display:block;text-align:center;padding:14px 0;}
+  table.mobile-cards td[colspan]::before{content:none;}
+}
+/* KPIs de Clientes (admin): grid fijo de 3 columnas para que nunca se rompa a 2+1 en celular. */
+.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;}
+.kpi-row .kpi-card{padding:16px 20px;min-width:0;}
+.kpi-row .kpi-card .section-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+@media (max-width:520px){
+  .kpi-row{gap:8px;}
+  .kpi-row .kpi-card{padding:10px 8px;text-align:center;}
+  .kpi-row .kpi-card .section-sub{font-size:10px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;}
+  .kpi-row .kpi-card > div[style*="font-size:24px"]{font-size:18px !important;}
+}
+/* Filas de Disponibilidad: en celular se apilan (info arriba, botón abajo a lo ancho completo)
+   para que "Programar cliente" nunca quede recortado por el borde de la pantalla. */
+.disp-slot{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.disp-slot-info{flex:1;min-width:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.disp-slot-fecha{width:130px;flex-shrink:0;font-size:12.5px;font-weight:700;}
+.disp-slot-hora{width:100px;flex-shrink:0;font-size:12.5px;font-weight:700;color:var(--success);}
+.disp-slot-motivo{flex:1;min-width:120px;font-size:12.5px;color:var(--ink-fade);}
+.disp-slot-btn{padding:4px 10px;font-size:11.5px;flex-shrink:0;}
+@media (max-width:600px){
+  .disp-slot{flex-direction:column;align-items:stretch;gap:6px;}
+  .disp-slot-info{flex-direction:column;align-items:flex-start;gap:2px;}
+  .disp-slot-fecha,.disp-slot-hora{width:auto;}
+  .disp-slot-btn{width:100%;padding:8px 10px;font-size:12.5px;}
+}
 /* Tabla de Sesiones: muchas columnas (datos de salud de inicio/fin) hacían que cada fila quedara
    muy alta y difícil de manejar, sobre todo en celular. Se reduce el padding y el tamaño de fuente
    solo en esta tabla (sin afectar el resto de tablas de la app), y se fija un ancho mínimo por
@@ -2472,8 +2510,8 @@ function renderSuspensiones(){
     </div>
     <div class="card fade-up" style="padding:6px;">
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>Cliente</th><th>Motivo</th><th>Desde</th><th>Hasta</th><th>Estado</th><th>Observación</th><th></th></tr></thead>
+        <table class="mobile-cards">
+          <thead><tr><th>Cliente</th><th>Motivo</th><th>Desde</th><th>Hasta</th><th>Estado</th><th>Observación</th><th>Acción</th></tr></thead>
           <tbody>
             ${sorted.length ? sorted.map(sp=>{
               const c = CLIENTES.find(x=>x.id===sp.clienteId);
@@ -2484,13 +2522,13 @@ function renderSuspensiones(){
               const estStyle = activa? 'background:var(--success-light);color:var(--success);' : futura? 'background:var(--accent-light);color:var(--accent-dark);' : 'background:var(--line);color:var(--ink-fade);';
               return `
               <tr>
-                <td style="font-weight:700;">${c?c.nombre:sp.clienteId}</td>
-                <td><span class="pill ${m.cls}" style="font-size:10.5px;">${m.label}${sp.motivo==='otro'&&sp.motivoDetalle?': '+sp.motivoDetalle:''}</span></td>
-                <td>${fmtFechaCorta(sp.fechaInicio)}</td>
-                <td>${fmtFechaCorta(sp.fechaFin)}</td>
-                <td><span class="pill" style="font-size:10.5px;${estStyle}">${estLabel}</span></td>
-                <td style="max-width:220px;">${sp.observacion||''}</td>
-                <td><button class="btn btn-outline btn-sm" data-del-susp="${sp.id}">Eliminar</button></td>
+                <td data-label="Cliente" style="font-weight:700;">${c?c.nombre:sp.clienteId}</td>
+                <td data-label="Motivo"><span class="pill ${m.cls}" style="font-size:10.5px;">${m.label}${sp.motivo==='otro'&&sp.motivoDetalle?': '+sp.motivoDetalle:''}</span></td>
+                <td data-label="Desde">${fmtFechaCorta(sp.fechaInicio)}</td>
+                <td data-label="Hasta">${fmtFechaCorta(sp.fechaFin)}</td>
+                <td data-label="Estado"><span class="pill" style="font-size:10.5px;${estStyle}">${estLabel}</span></td>
+                <td data-label="Observación" style="max-width:220px;">${sp.observacion||''}</td>
+                <td data-label="Acción"><button class="btn btn-outline btn-sm" data-del-susp="${sp.id}">Eliminar</button></td>
               </tr>`;
             }).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--ink-fade);padding:30px;">No hay suspensiones registradas.</td></tr>`}
           </tbody>
@@ -2697,11 +2735,13 @@ function renderDisponibilidad(){
           <div style="font-weight:800;font-size:14.5px;margin-bottom:10px;">${p.nombre} <span class="pill pill-teal" style="font-size:10.5px;margin-left:6px;">${slots.length} espacio${slots.length===1?'':'s'}</span></div>
           <div style="display:flex;flex-direction:column;gap:8px;">
             ${slots.map(sl=>`
-              <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);">
-                <div style="width:130px;flex-shrink:0;font-size:12.5px;font-weight:700;">${fmtFechaCorta(sl.fecha)}</div>
-                <div style="width:100px;flex-shrink:0;font-size:12.5px;font-weight:700;color:var(--success);">${sl.hora}${sl.horaFin?'–'+sl.horaFin:''}</div>
-                <div style="flex:1;font-size:12.5px;color:var(--ink-fade);">${sl.motivo}${sl.cliente?' · antes: '+sl.cliente:''}</div>
-                <button class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11.5px;flex-shrink:0;" data-programar-disp="${sl.id}">Programar cliente</button>
+              <div class="disp-slot">
+                <div class="disp-slot-info">
+                  <div class="disp-slot-fecha">${fmtFechaCorta(sl.fecha)}</div>
+                  <div class="disp-slot-hora">${sl.hora}${sl.horaFin?'–'+sl.horaFin:''}</div>
+                  <div class="disp-slot-motivo">${sl.motivo}${sl.cliente?' · antes: '+sl.cliente:''}</div>
+                </div>
+                <button class="btn btn-outline btn-sm disp-slot-btn" data-programar-disp="${sl.id}">Programar cliente</button>
               </div>`).join('')}
           </div>
         </div>`;
@@ -4097,15 +4137,15 @@ function renderDocs(){
       <h3 style="font-size:15px;font-weight:800;margin-bottom:10px;">Estado del mes por profesor</h3>
       <div class="card fade-up" style="padding:6px;margin-bottom:26px;">
         <div class="table-wrap">
-          <table>
+          <table class="mobile-cards">
             <thead><tr><th>Profesor</th>${DOC_TIPOS.map(d=>`<th>${d.v}</th>`).join('')}</tr></thead>
             <tbody>
               ${profesores.map(p=>`
               <tr>
-                <td style="font-weight:700;">${p.nombre}</td>
+                <td data-label="Profesor" style="font-weight:700;">${p.nombre}</td>
                 ${DOC_TIPOS.map(d=>{
                   const env = estadoDe(p.id, d.v);
-                  return `<td>${env
+                  return `<td data-label="${d.v}">${env
                     ? `<span class="pill pill-success" style="font-size:10.5px;">✓ Enviado · ${fmtFechaCorta(env.fecha)}</span>`
                     : `<span class="pill" style="font-size:10.5px;background:var(--warning-light);color:var(--warning);">Falta por subir</span>`}</td>`;
                 }).join('')}
@@ -4117,15 +4157,15 @@ function renderDocs(){
       <h3 style="font-size:15px;font-weight:800;margin-bottom:10px;">Historial de envíos</h3>
       <div class="card fade-up" style="padding:6px;">
         <div class="table-wrap">
-          <table>
+          <table class="mobile-cards">
             <thead><tr><th>Fecha</th><th>Profesor</th><th>Tipo</th><th>Archivo</th><th>Estado</th></tr></thead>
             <tbody>
               ${historial.length? historial.slice().reverse().map(d=>`
               <tr>
-                <td>${fmtFechaCorta(d.fecha)}</td>
-                <td>${profesorNombre(d.profesorId)}</td>
-                <td>${d.tipo}</td><td>${d.archivo}</td>
-                <td><span class="pill pill-success">${d.estado}</span></td>
+                <td data-label="Fecha">${fmtFechaCorta(d.fecha)}</td>
+                <td data-label="Profesor">${profesorNombre(d.profesorId)}</td>
+                <td data-label="Tipo">${d.tipo}</td><td data-label="Archivo">${d.archivo}</td>
+                <td data-label="Estado"><span class="pill pill-success">${d.estado}</span></td>
               </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--ink-fade);padding:26px;">Aún no hay envíos este mes.</td></tr>`}
             </tbody>
           </table>
@@ -4172,14 +4212,14 @@ function renderDocs(){
     <h3 style="font-size:15px;font-weight:800;margin-bottom:10px;">Historial de envíos</h3>
     <div class="card fade-up" style="padding:6px;">
       <div class="table-wrap">
-        <table>
+        <table class="mobile-cards">
           <thead><tr><th>Fecha</th><th>Tipo</th><th>Archivo</th><th>Estado</th></tr></thead>
           <tbody>
             ${historial.length? historial.slice().reverse().map(d=>`
             <tr>
-              <td>${fmtFechaCorta(d.fecha)}</td>
-              <td>${d.tipo}</td><td>${d.archivo}</td>
-              <td><span class="pill pill-success">${d.estado}</span></td>
+              <td data-label="Fecha">${fmtFechaCorta(d.fecha)}</td>
+              <td data-label="Tipo">${d.tipo}</td><td data-label="Archivo">${d.archivo}</td>
+              <td data-label="Estado"><span class="pill pill-success">${d.estado}</span></td>
             </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--ink-fade);padding:26px;">Aún no hay envíos este mes.</td></tr>`}
           </tbody>
         </table>
@@ -4319,21 +4359,21 @@ function renderClientes(){
 
   el.innerHTML = `
     ${overview ? `
-    <div class="fade-up" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
-      <div class="card" style="padding:16px 20px;flex:1;min-width:140px;">
+    <div class="fade-up kpi-row">
+      <div class="card kpi-card">
         <div class="section-sub">Total clientes</div><div style="font-size:24px;font-weight:800;margin-top:4px;">${baseClientes.length}</div>
       </div>
-      <div class="card" style="padding:16px 20px;flex:1;min-width:140px;">
+      <div class="card kpi-card">
         <div class="section-sub">Sesiones este mes</div><div style="font-size:24px;font-weight:800;margin-top:4px;color:var(--teal-dark);">${histScope.filter(h=>h.fecha&&h.fecha.startsWith(STATE.invoiceMonth)&&h.estado!=='cancelada').length}</div>
       </div>
-      <div class="card" style="padding:16px 20px;flex:1;min-width:140px;">
+      <div class="card kpi-card">
         <div class="section-sub">Cancelaciones este mes</div><div style="font-size:24px;font-weight:800;margin-top:4px;color:var(--danger);">${histScope.filter(h=>h.fecha&&h.fecha.startsWith(STATE.invoiceMonth)&&h.estado==='cancelada').length}</div>
       </div>
     </div>
     <div class="card fade-up" style="padding:18px 20px;margin-bottom:20px;">
       <div style="font-weight:800;font-size:14px;margin-bottom:12px;">Resumen por profesor</div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <div class="table-wrap">
+        <table class="mobile-cards" style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="text-align:left;color:var(--ink-fade);font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;">
             <th style="padding:6px 10px 6px 0;">Profesor</th>
             <th style="padding:6px 10px;">Clases / semana</th>
@@ -4349,12 +4389,12 @@ function renderClientes(){
               const horasSemana = clasesSemana; // 1h estimada por clase (duración no registrada aún)
               const { valorClases, valorPerdida } = resumenValorProfesorMes(p.id, STATE.invoiceMonth);
               return `<tr style="border-top:1px solid var(--line);">
-                <td style="padding:9px 10px 9px 0;font-weight:700;">${p.nombre}</td>
-                <td style="padding:9px 10px;">${clasesSemana}</td>
-                <td style="padding:9px 10px;${cancelacionesMes?'color:var(--danger);font-weight:700;':''}">${cancelacionesMes}</td>
-                <td style="padding:9px 10px;">${horasSemana} h</td>
-                <td style="padding:9px 10px;font-weight:700;color:var(--teal-dark);">${money(valorClases)}</td>
-                <td style="padding:9px 10px;${valorPerdida?'color:var(--danger);font-weight:700;':''}">${money(valorPerdida)}</td>
+                <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:700;">${p.nombre}</td>
+                <td data-label="Clases / semana" style="padding:9px 10px;">${clasesSemana}</td>
+                <td data-label="Cancelaciones (mes)" style="padding:9px 10px;${cancelacionesMes?'color:var(--danger);font-weight:700;':''}">${cancelacionesMes}</td>
+                <td data-label="Prom. horas / semana" style="padding:9px 10px;">${horasSemana} h</td>
+                <td data-label="Valor clases (mes)" style="padding:9px 10px;font-weight:700;color:var(--teal-dark);">${money(valorClases)}</td>
+                <td data-label="Pérdida por cancelaciones (mes)" style="padding:9px 10px;${valorPerdida?'color:var(--danger);font-weight:700;':''}">${money(valorPerdida)}</td>
               </tr>`;
             }).join('')}
           </tbody>
