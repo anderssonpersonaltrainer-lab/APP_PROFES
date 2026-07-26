@@ -835,7 +835,7 @@ const STORAGE_KEY = 'andersson_app_state_v1';
 function saveState(){
   try{
     const data = {
-      REGISTROS, SCHEDULE, SCHEDULE_TEMPLATE, SCHEDULE_EXPANDED_MONTHS, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
+      REGISTROS, SCHEDULE, SCHEDULE_TEMPLATE, SCHEDULE_EXPANDED_MONTHS, SCHEDULE_TEMPLATE_VERSION, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
       INVOICE_COUNTERS, savedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -850,6 +850,7 @@ function loadState(){
     if(Array.isArray(data.SCHEDULE)) SCHEDULE = data.SCHEDULE;
     if(Array.isArray(data.SCHEDULE_TEMPLATE)) SCHEDULE_TEMPLATE = data.SCHEDULE_TEMPLATE;
     if(Array.isArray(data.SCHEDULE_EXPANDED_MONTHS)) SCHEDULE_EXPANDED_MONTHS = data.SCHEDULE_EXPANDED_MONTHS;
+    if(data.SCHEDULE_TEMPLATE_VERSION !== undefined) SCHEDULE_TEMPLATE_VERSION = data.SCHEDULE_TEMPLATE_VERSION;
     if(Array.isArray(data.HISTORIAL)) HISTORIAL = data.HISTORIAL;
     if(Array.isArray(data.NOTIFICACIONES)) NOTIFICACIONES = data.NOTIFICACIONES;
     if(Array.isArray(data.DOCS_ENVIADOS)) DOCS_ENVIADOS = data.DOCS_ENVIADOS;
@@ -1157,6 +1158,14 @@ function buildScheduleFromGridData(data){
   return {nuevo, sinCoincidencia};
 }
 let _lastScheduleSyncAt = null;
+// 26/07/2026: marca de versión de la plantilla publicada que YA está aplicada en este dispositivo
+// (SCHEDULE_TEMPLATE/SCHEDULE actuales corresponden a esta versión). Se persiste con saveState()/
+// loadState() — ver el bug real corregido junto a loadPublishedSchedule() más abajo: antes de esto,
+// cada vez que se abría la app se volvía a "aplicar" la plantilla publicada aunque fuera la MISMA de
+// siempre, y aplicarla implica reconstruir el horario del mes desde cero — borrando cualquier
+// "Programar cliente"/"Reasignar profesor"/"Agendar masaje" hecho ese mismo día apenas se cerraba
+// sesión y se volvía a entrar.
+let SCHEDULE_TEMPLATE_VERSION = null;
 
 /* ---------- HORARIO MENSUAL: expandir la plantilla semanal a fechas concretas ----------
    SCHEDULE_TEMPLATE trae un renglón por horario recurrente (profesor+día de la semana+hora), sin
@@ -1237,23 +1246,57 @@ function fechaParaDiaEnSemanaDe_(fechaBaseISO, nuevoDia){
 /* ---------- LECTURA AUTOMÁTICA (liviana): trae la última plantilla publicada por el admin ----------
    Se llama sola al abrir la app, para CUALQUIER rol — a diferencia de syncScheduleFromDrive() (más
    abajo), esto NO lee ni reinterpreta el Excel maestro de Drive: solo pide la plantilla que el
-   administrador ya dejó guardada la última vez que presionó "Actualizar horario". Es una lectura
-   liviana y segura (no puede "pisar" nada a medio hacer), así que sí tiene sentido que corra sola. */
+   administrador ya dejó guardada la última vez que presionó "Actualizar horario".
+
+   26/07/2026 — BUG REAL CORREGIDO (reportado por Andersson: "programé todas las sesiones de Karen
+   de la semana del 27 al 1 de agosto, cerré sesión, volví a ingresar y todo se borró"): esta función
+   se describía como "liviana y segura, no puede pisar nada a medio hacer" — pero SÍ pisaba: llamaba
+   a `regenerarHorarioCompleto_()` (que vacía por completo `SCHEDULE`/`SCHEDULE_EXPANDED_MONTHS`) CADA
+   VEZ que la app arrancaba, sin importar si la plantilla publicada era la MISMA de siempre o una
+   nueva. Como "Programar cliente"/"Reasignar profesor"/"Agendar masaje" solo existen como una
+   modificación sobre `SCHEDULE` ya expandido (nunca tocan `SCHEDULE_TEMPLATE`, que es lo único que
+   se publica), cualquiera de esas acciones se perdía apenas se cerraba sesión y se volvía a entrar —
+   incluso el mismo día, incluso sin que el administrador hubiera publicado nada nuevo — porque
+   `bootApp()` llama esta función en cada arranque. Ahora solo se reconstruye el horario cuando la
+   plantilla publicada realmente CAMBIÓ desde la última vez que este dispositivo la aplicó
+   (`SCHEDULE_TEMPLATE_VERSION`, comparado contra `publishedAt`); si es la misma versión de siempre,
+   no se toca nada — la expansión y las asignaciones locales quedan intactas. */
 async function loadPublishedSchedule(){
   if(gasConfigured()){
     try{
       const data = await gasCall('getPublishedSchedule');
       if(data && Array.isArray(data.rows) && data.rows.length >= 10){
+        const publishedAt = data.publishedAt || null;
+        if(publishedAt && publishedAt === SCHEDULE_TEMPLATE_VERSION){
+          // Misma versión que ya tiene este dispositivo aplicada — no se reconstruye nada, para no
+          // borrar asignaciones/reasignaciones locales que el administrador todavía no haya vuelto
+          // a publicar. Solo se asegura que el mes visible esté expandido (por si acaso).
+          const {year, monthIdx0} = horarioMesPartes_();
+          ensureMonthExpanded(year, monthIdx0);
+          saveState();
+          if(STATE.module==='horario') renderHorario();
+          return;
+        }
+        // Plantilla nueva (o primera vez que este dispositivo consulta) — sí hay algo real que
+        // aplicar, así que aquí sí se reconstruye el horario del mes desde cero.
         SCHEDULE_TEMPLATE = data.rows;
-        _lastScheduleSyncAt = data.publishedAt || null;
+        SCHEDULE_TEMPLATE_VERSION = publishedAt;
+        _lastScheduleSyncAt = publishedAt;
+        regenerarHorarioCompleto_();
+        const {year, monthIdx0} = horarioMesPartes_();
+        ensureMonthExpanded(year, monthIdx0);
+        saveState();
+        if(STATE.module==='horario') renderHorario();
+        return;
       }
     }catch(e){
       console.warn('loadPublishedSchedule falló (se usa la plantilla que ya había):', e);
     }
   }
-  // Si no hay Drive configurado, si nunca se ha publicado nada, o si falló la lectura, se usa la
-  // plantilla que ya hubiera (la precargada de fábrica, o la última guardada en este dispositivo).
-  regenerarHorarioCompleto_();
+  // Sin Drive configurado, sin nada publicado todavía, o si falló la lectura: se usa lo que ya
+  // hubiera en este dispositivo tal cual estaba — solo se expande el mes visible si todavía no se
+  // había expandido (primera vez que se abre la app en este dispositivo), sin reconstruir nada que
+  // ya existiera.
   const {year, monthIdx0} = horarioMesPartes_();
   ensureMonthExpanded(year, monthIdx0);
   saveState();
@@ -1292,6 +1335,14 @@ async function syncScheduleFromDrive(){
     // la vean automáticamente la próxima vez que abran la app — no es fatal si esto falla (queda
     // guardado localmente igual), pero si falla nadie más ve el cambio hasta el próximo "Actualizar".
     const publicado = await gasCall('publishSchedule', null, {template: SCHEDULE_TEMPLATE});
+    // Se guarda la marca de versión que devolvió el propio servidor (no una hora local) — así, en
+    // el próximo arranque de este mismo dispositivo, loadPublishedSchedule() reconoce que ya tiene
+    // aplicada esta misma versión y no vuelve a reconstruir el horario innecesariamente (ver nota
+    // completa junto a loadPublishedSchedule sobre el bug real que esto corrige).
+    if(publicado && publicado.ok && publicado.publishedAt){
+      SCHEDULE_TEMPLATE_VERSION = publicado.publishedAt;
+      saveState();
+    }
     return {ok:true, publicado: !!(publicado && publicado.ok)};
   }catch(e){
     console.warn('syncScheduleFromDrive falló (se conserva el horario actual):', e);
@@ -2225,6 +2276,9 @@ function openReasignarModal(id){
     renderNotifDrawer();
     closeModal();
     renderHorario();
+    // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
+    // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
+    saveState();
     toast(`Clase asignada a ${profesorNombre(nuevoProfesorId)}.`, 'success');
   });
 }
@@ -2306,6 +2360,9 @@ function openProgramarSlotModal(id){
     renderNotifDrawer();
     closeModal();
     refrescarVistaHorarioODisponibilidad_();
+    // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
+    // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
+    saveState();
     toast(`${clienteNombre(clienteId)} programado (sesión única).`, 'success');
   });
 }
@@ -2389,6 +2446,9 @@ function openAgendarMasajeModal(){
     renderNotifDrawer();
     closeModal();
     renderHorario();
+    // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
+    // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
+    saveState();
     toast(`Masaje agendado con ${profesorNombre(profesorId)}.`, 'success');
   });
 }
