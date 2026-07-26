@@ -835,7 +835,7 @@ const STORAGE_KEY = 'andersson_app_state_v1';
 function saveState(){
   try{
     const data = {
-      REGISTROS, SCHEDULE, SCHEDULE_TEMPLATE, SCHEDULE_EXPANDED_MONTHS, SCHEDULE_TEMPLATE_VERSION, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
+      REGISTROS, SCHEDULE, SCHEDULE_TEMPLATE, SCHEDULE_EXPANDED_MONTHS, SCHEDULE_TEMPLATE_VERSION, SCHEDULE_OVERRIDES, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
       INVOICE_COUNTERS, savedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -851,6 +851,7 @@ function loadState(){
     if(Array.isArray(data.SCHEDULE_TEMPLATE)) SCHEDULE_TEMPLATE = data.SCHEDULE_TEMPLATE;
     if(Array.isArray(data.SCHEDULE_EXPANDED_MONTHS)) SCHEDULE_EXPANDED_MONTHS = data.SCHEDULE_EXPANDED_MONTHS;
     if(data.SCHEDULE_TEMPLATE_VERSION !== undefined) SCHEDULE_TEMPLATE_VERSION = data.SCHEDULE_TEMPLATE_VERSION;
+    if(Array.isArray(data.SCHEDULE_OVERRIDES)) SCHEDULE_OVERRIDES = data.SCHEDULE_OVERRIDES;
     if(Array.isArray(data.HISTORIAL)) HISTORIAL = data.HISTORIAL;
     if(Array.isArray(data.NOTIFICACIONES)) NOTIFICACIONES = data.NOTIFICACIONES;
     if(Array.isArray(data.DOCS_ENVIADOS)) DOCS_ENVIADOS = data.DOCS_ENVIADOS;
@@ -1166,6 +1167,20 @@ let _lastScheduleSyncAt = null;
 // "Programar cliente"/"Reasignar profesor"/"Agendar masaje" hecho ese mismo día apenas se cerraba
 // sesión y se volvía a entrar.
 let SCHEDULE_TEMPLATE_VERSION = null;
+// 26/07/2026 — BUG SERIO CORREGIDO (reportado por Andersson: programó toda la semana de Karen desde
+// su computador, y ni su propio celular ni la profesora veían el cambio — solo veía la notificación,
+// nunca el horario en sí). Causa raíz real, distinta del bug del mismo día ya corregido arriba:
+// "Programar cliente", "Reasignar profesor" y "Agendar masaje" SOLO mutaban `SCHEDULE` (el horario
+// ya expandido a fechas) en el dispositivo donde se hacían — nunca se guardaban en ningún lado
+// compartido. A diferencia de las cancelaciones (que sí viajan entre dispositivos vía `REGISTROS`,
+// ver Bug 5 en el contexto del proyecto), estos 3 cambios nunca tuvieron su propio mecanismo de
+// sincronización — el fix del mismo día (SCHEDULE_TEMPLATE_VERSION, arriba) solo evitaba que un
+// dispositivo se auto-borrara su propio cambio; no hacía que otros dispositivos (el celular del
+// mismo Andersson, o el de Karen) lo vieran. `SCHEDULE_OVERRIDES` es la lista de esos 3 tipos de
+// cambio, guardada también en el Apps Script (hoja `_HorarioExcepciones`) y leída por CUALQUIER
+// dispositivo al abrir la app — ver `syncScheduleOverridesFromServer()` y
+// `applyScheduleOverridesToMonth_()` más abajo.
+let SCHEDULE_OVERRIDES = [];
 
 /* ---------- HORARIO MENSUAL: expandir la plantilla semanal a fechas concretas ----------
    SCHEDULE_TEMPLATE trae un renglón por horario recurrente (profesor+día de la semana+hora), sin
@@ -1214,6 +1229,31 @@ function expandTemplateForMonth_(year, monthIdx0){
   });
   return salida;
 }
+// Aplica sobre `SCHEDULE` los cambios puntuales (Programar cliente / Reasignar profesor / Agendar
+// masaje) ya sincronizados desde CUALQUIER dispositivo (`SCHEDULE_OVERRIDES`, ver nota junto a su
+// declaración más arriba) que correspondan a fechas de este mes. Si la fila ya existe en `SCHEDULE`
+// (viene de la plantilla, mismo id) se le encima el cambio; si no existe todavía (ej. un masaje
+// agendado, que no viene de ninguna plantilla) se agrega como fila nueva. Se puede llamar tantas
+// veces como haga falta sin duplicar nada — siempre busca por `id` primero.
+function applyScheduleOverridesToMonth_(year, monthIdx0){
+  const mesStr = `${year}-${pad(monthIdx0+1)}`;
+  SCHEDULE_OVERRIDES.forEach(o=>{
+    if(!o || !o.fecha || !o.fecha.startsWith(mesStr)) return;
+    const existente = SCHEDULE.find(x=>x.id===o.id);
+    if(existente) Object.assign(existente, o);
+    else SCHEDULE.push(Object.assign({}, o));
+  });
+}
+// Vuelve a aplicar `SCHEDULE_OVERRIDES` sobre TODOS los meses ya expandidos en este dispositivo —
+// se usa después de traer overrides nuevos del servidor (`syncScheduleOverridesFromServer`), para
+// que un cambio hecho en OTRO dispositivo aparezca de inmediato sin tener que salir y volver a
+// entrar al mes ya abierto.
+function reaplicarOverridesATodosLosMesesExpandidos_(){
+  SCHEDULE_EXPANDED_MONTHS.forEach(mesStr=>{
+    const [y,m] = mesStr.split('-').map(Number);
+    applyScheduleOverridesToMonth_(y, m-1);
+  });
+}
 // Expande un mes SOLO si todavía no se había expandido en esta sesión/dispositivo — así, si el
 // administrador reasigna una clase o programa un cliente y luego navega a otro mes y vuelve, esa
 // edición sigue ahí (no se pierde por volver a generar el mes desde la plantilla).
@@ -1222,6 +1262,7 @@ function ensureMonthExpanded(year, monthIdx0){
   if(SCHEDULE_EXPANDED_MONTHS.includes(mesStr)) return;
   SCHEDULE.push(...expandTemplateForMonth_(year, monthIdx0));
   SCHEDULE_EXPANDED_MONTHS.push(mesStr);
+  applyScheduleOverridesToMonth_(year, monthIdx0);
 }
 // Descarta toda la expansión ya generada (y con ella, cualquier reasignación/programación local que
 // no se haya reflejado también en Drive) — se usa cuando llega una plantilla nueva, sea porque el
@@ -1241,6 +1282,42 @@ function fechaParaDiaEnSemanaDe_(fechaBaseISO, nuevoDia){
   const diaActual = weekdayIdxFromISO(fechaBaseISO);
   d.setDate(d.getDate() + (nuevoDia - diaActual));
   return isoDate(d);
+}
+
+/* ---------- SINCRONIZACIÓN DE CAMBIOS PUNTUALES DE HORARIO (Programar cliente / Reasignar
+   profesor / Agendar masaje) ----------
+   26/07/2026, bug serio corregido — ver la nota completa junto a `SCHEDULE_OVERRIDES` más arriba.
+   `gasGuardarScheduleOverride_` sube UN cambio puntual al Apps Script apenas se confirma (se llama
+   desde los 3 modales correspondientes, después de la mutación local de SCHEDULE). Es "fire and
+   forget" respecto a la UI (no bloquea el modal ni el toast de confirmación): si falla por falta de
+   red, el cambio igual queda guardado en localStorage de este dispositivo (como ya pasaba antes),
+   solo que no se comparte con los demás hasta que la próxima sincronización tenga éxito. */
+async function gasGuardarScheduleOverride_(slot){
+  if(!gasConfigured()) return;
+  try{
+    await gasCall('saveScheduleOverride', null, {id: slot.id, data: JSON.stringify(slot)});
+  }catch(e){
+    console.warn('gasGuardarScheduleOverride_ falló (el cambio queda guardado solo en este dispositivo por ahora):', e);
+  }
+}
+// Trae TODOS los cambios puntuales que cualquier dispositivo haya guardado en el Apps Script, los
+// aplica sobre los meses ya expandidos en este dispositivo, y re-renderiza si corresponde. Se llama
+// sola al abrir la app (junto a loadPublishedSchedule) y periódicamente mientras la app sigue
+// abierta — igual que ya se hacía con la Anamnesis/tarifas (`_schedulePeriodicClienteDatosSync`).
+async function syncScheduleOverridesFromServer(){
+  if(!gasConfigured()) return;
+  try{
+    const data = await gasCall('getScheduleOverrides');
+    if(data && Array.isArray(data.overrides)){
+      SCHEDULE_OVERRIDES = data.overrides;
+      reaplicarOverridesATodosLosMesesExpandidos_();
+      saveState();
+      if(STATE.module==='horario') renderHorario();
+      else if(STATE.module==='disponibilidad') renderDisponibilidad();
+    }
+  }catch(e){
+    console.warn('syncScheduleOverridesFromServer falló (se usan los cambios ya guardados en este dispositivo):', e);
+  }
 }
 
 /* ---------- LECTURA AUTOMÁTICA (liviana): trae la última plantilla publicada por el admin ----------
@@ -1489,6 +1566,16 @@ let _clienteDatosSyncTimer = null;
 function _schedulePeriodicClienteDatosSync(){
   if(_clienteDatosSyncTimer) clearInterval(_clienteDatosSyncTimer);
   _clienteDatosSyncTimer = setInterval(()=>{ syncClienteDatosFromDrive().catch(e=>console.warn('Sync periódico de clientes falló:', e)); }, 6*60*60*1000);
+}
+// 26/07/2026: los cambios puntuales de horario (Programar cliente/Reasignar profesor/Agendar
+// masaje) sí necesitan revisarse seguido — a diferencia de la Anamnesis/tarifas (que casi no
+// cambian), el sentido de estos es que el profesor los vea reflejados pronto, sin tener que cerrar
+// y volver a abrir la app. Cada 2 minutos es liviano (una sola lectura de una hoja pequeña) y da una
+// sensación cercana a "en tiempo real" sin recargar la app a cada rato.
+let _scheduleOverridesSyncTimer = null;
+function _schedulePeriodicScheduleOverridesSync(){
+  if(_scheduleOverridesSyncTimer) clearInterval(_scheduleOverridesSyncTimer);
+  _scheduleOverridesSyncTimer = setInterval(()=>{ syncScheduleOverridesFromServer().catch(e=>console.warn('Sync periódico de cambios de horario falló:', e)); }, 2*60*1000);
 }
 
 // 24/07/2026: se agregaron 'tipoCancelacion' y 'fechaHoraCancelacion' AL FINAL (nunca en medio —
@@ -1777,10 +1864,17 @@ function bootApp(startModule){
   // La lectura pesada del Excel de Drive ahora es SOLO manual, con el botón "Actualizar horario" del
   // módulo Horario (solo administrador) — ver la nota completa junto a syncScheduleFromDrive.
   loadPublishedSchedule().catch(e=>console.warn('Carga inicial de horario publicado falló:', e));
+  // 26/07/2026: además de la plantilla recurrente (arriba), se traen los cambios puntuales de
+  // horario (Programar cliente/Reasignar profesor/Agendar masaje) que cualquier dispositivo haya
+  // guardado — así el celular del administrador y el de cada profesor ven exactamente lo mismo, sin
+  // importar en qué dispositivo se haya hecho el cambio. Ver la nota completa junto a
+  // syncScheduleOverridesFromServer.
+  syncScheduleOverridesFromServer().catch(e=>console.warn('Carga inicial de cambios de horario falló:', e));
   syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
   _schedulePeriodicClienteDatosSync();
+  _schedulePeriodicScheduleOverridesSync();
 
   // {push:true}: crea la entrada de historial que separa "login" de "app" (ver nota completa en
   // switchModule) — así el botón/gesto "atrás" del celular vuelve al panel de ingreso en vez de
@@ -2279,6 +2373,11 @@ function openReasignarModal(id){
     // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
     // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
     saveState();
+    // 26/07/2026: además del guardado local, se sube este cambio al Apps Script (SCHEDULE_OVERRIDES)
+    // para que cualquier otro dispositivo (el celular del propio administrador, el del profesor
+    // afectado) lo vea sin depender de que se haga desde ESTE navegador — ver el bug serio corregido
+    // junto a la declaración de SCHEDULE_OVERRIDES.
+    gasGuardarScheduleOverride_(s);
     toast(`Clase asignada a ${profesorNombre(nuevoProfesorId)}.`, 'success');
   });
 }
@@ -2363,6 +2462,9 @@ function openProgramarSlotModal(id){
     // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
     // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
     saveState();
+    // 26/07/2026: se sube al Apps Script para que se vea en cualquier otro dispositivo (el celular
+    // del administrador, el del profesor) — ver el bug serio corregido junto a SCHEDULE_OVERRIDES.
+    gasGuardarScheduleOverride_(s);
     toast(`${clienteNombre(clienteId)} programado (sesión única).`, 'success');
   });
 }
@@ -2449,6 +2551,9 @@ function openAgendarMasajeModal(){
     // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
     // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
     saveState();
+    // 26/07/2026: se sube al Apps Script para que se vea en cualquier otro dispositivo — ver el bug
+    // serio corregido junto a SCHEDULE_OVERRIDES.
+    gasGuardarScheduleOverride_(nuevo);
     toast(`Masaje agendado con ${profesorNombre(profesorId)}.`, 'success');
   });
 }
