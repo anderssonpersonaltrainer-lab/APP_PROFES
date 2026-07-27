@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-27.2">
+<meta name="app-version" content="2026-07-27.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1779,6 +1779,44 @@ async function pullRegistrosForCliente(cliente){
     console.warn('pullRegistrosForCliente falló (se ignora, sigue funcionando localmente):', e);
   }
 }
+// 27/07/2026 — brecha real encontrada al revisar todo antes de pasar a producción real (pedido
+// explícito de Andersson: "guarda todo muy bien... registro de sesiones de todo el mes por cada uno
+// de los profesores... NO DEBE FALLAR NADA"): a diferencia de SCHEDULE_OVERRIDES (que se sincroniza
+// solo, cada 2 minutos, para TODOS los cambios sin importar qué esté mirando el usuario),
+// `pullRegistrosForCliente` SOLO se llama para un cliente puntual (el que se tenga seleccionado en
+// "Registro de sesiones"). Esto significa que si el profesor Daniel registra una sesión desde su
+// celular, ese registro NO aparecía automáticamente en el panel de resumen del administrador ni en
+// "Registro de sesiones" de otro dispositivo — solo se veía si alguien entraba puntualmente al
+// detalle de ESE cliente en ESE dispositivo. Mismo tipo de brecha que ya se corrigió hoy para el
+// horario, esta vez para las sesiones y la cuenta de cobro.
+// Se agrega un refresco periódico de TODOS los clientes activos, uno por uno (nunca todos a la vez)
+// para no saturar el Apps Script/Drive con ~35-40 lecturas simultáneas — el mismo motivo por el que
+// syncClienteDatosFromDrive (Anamnesis/tarifas) ya se hacía así, aunque esa corre cada 6 horas
+// porque cambia poco; los registros de sesión cambian todo el día así que se sincronizan más seguido
+// (cada 15 minutos) sin llegar al extremo de cada 2 minutos de SCHEDULE_OVERRIDES (que es una sola
+// hoja liviana, no ~40 lecturas de Drive por ciclo).
+let _registrosSyncEnCurso = false;
+async function sincronizarRegistrosDeTodosLosClientes_(){
+  if(!gasConfigured() || _registrosSyncEnCurso) return;
+  _registrosSyncEnCurso = true;
+  try{
+    const clientesActivos = CLIENTES.filter(c=>c.activo!==false && c.drive);
+    for(const cliente of clientesActivos){
+      try{ await pullRegistrosForCliente(cliente); }
+      catch(e){ console.warn('sincronizarRegistrosDeTodosLosClientes_: falló uno de los clientes', cliente.id, e); }
+    }
+    if(STATE.module==='clientes') renderClientes();
+  } finally {
+    _registrosSyncEnCurso = false;
+  }
+}
+let _registrosSyncTimer = null;
+function _schedulePeriodicRegistrosSyncTodos_(){
+  if(_registrosSyncTimer) clearInterval(_registrosSyncTimer);
+  _registrosSyncTimer = setInterval(()=>{
+    sincronizarRegistrosDeTodosLosClientes_().catch(e=>console.warn('Sync periódico de registros de todos los clientes falló:', e));
+  }, 15*60*1000);
+}
 
 // Convierte un Blob (el PDF ya generado) a base64 puro (sin el prefijo "data:...;base64,") para
 // poder mandarlo dentro del cuerpo JSON de la petición al Apps Script.
@@ -1991,8 +2029,15 @@ function bootApp(startModule){
   syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
+  // 27/07/2026: además del refresco puntual de arriba (solo el último cliente visto en ESTE
+  // dispositivo), se dispara también un refresco de TODOS los clientes activos — así el panel de
+  // resumen y "Registro de sesiones" reflejan pronto lo que cualquier profesor haya registrado desde
+  // cualquier otro dispositivo, no solo lo que ya estaba cacheado aquí. Ver la nota completa junto a
+  // sincronizarRegistrosDeTodosLosClientes_.
+  sincronizarRegistrosDeTodosLosClientes_().catch(e=>console.warn('Sync inicial de registros de todos los clientes falló:', e));
   _schedulePeriodicClienteDatosSync();
   _schedulePeriodicScheduleOverridesSync();
+  _schedulePeriodicRegistrosSyncTodos_();
 
   // {push:true}: crea la entrada de historial que separa "login" de "app" (ver nota completa en
   // switchModule) — así el botón/gesto "atrás" del celular vuelve al panel de ingreso en vez de
@@ -4012,7 +4057,20 @@ function invoicePage2RenderHTML(){
   </div>`;
 }
 
-function openInvoiceModal(clienteId){
+async function openInvoiceModal(clienteId){
+  // 27/07/2026: antes de calcular una cuenta de cobro, se refresca de una vez SOLO el registro de
+  // este cliente (una llamada, rápida) en vez de confiar en lo que ya estuviera cacheado en este
+  // dispositivo — esto es dinero real, y REGISTROS solo se actualiza cuando alguien abre el detalle
+  // de un cliente puntual (ver la nota completa junto a pullRegistrosForCliente/_schedulePeriodicRegistrosSyncTodos_
+  // más arriba). Sin este refresco, una cuenta de cobro generada en un dispositivo que nunca visitó
+  // el detalle de este cliente podía quedar incompleta si otro profesor había registrado sesiones
+  // desde otro dispositivo. Se muestra un toast breve mientras tanto para que no parezca que la app
+  // se congeló.
+  const clienteParaRefrescar = CLIENTES.find(c=>c.id===clienteId);
+  if(clienteParaRefrescar && gasConfigured()){
+    toast('Actualizando registros antes de generar la cuenta de cobro…');
+    await pullRegistrosForCliente(clienteParaRefrescar).catch(e=>console.warn('No se pudo refrescar el registro antes de la cuenta de cobro (se usa lo último guardado en este dispositivo):', e));
+  }
   const inv = computeInvoice(clienteId, STATE.invoiceMonth);
   openModal(`
     <div class="modal-head">
