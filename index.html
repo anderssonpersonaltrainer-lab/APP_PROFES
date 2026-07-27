@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-27.1">
+<meta name="app-version" content="2026-07-27.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1376,20 +1376,22 @@ async function syncScheduleOverridesFromServer(){
 }
 // 26/07/2026 — red de seguridad de reconciliación ("Reenviar cambios a todos", antes solo un botón
 // manual del administrador en Horario; 27/07/2026: AHORA TAMBIÉN corre sola, automáticamente, ver
-// `_intentarReenvioAutomaticoSiEsAdmin_()` más abajo): vuelve a subir al servidor todos los cambios
-// puntuales que ya existen en SCHEDULE en este dispositivo (identificados por sus banderas
-// programadoPorAdmin/asignadoPorAdmin/agendadoPorAdmin) que TODAVÍA no se hayan confirmado guardados
-// en el servidor (bandera `sincronizadoServidor`, se pone en true apenas el servidor confirma
-// `ok:true` — ver `gasGuardarScheduleOverride_`). Se agregó porque varios cambios reales de Andersson
-// se habían hecho ANTES de que el Apps Script tuviera desplegadas las acciones nuevas
+// `_intentarReenvioAutomaticoDeCambiosLocales_()` más abajo): vuelve a subir al servidor todos los
+// cambios puntuales que ya existen en SCHEDULE en este dispositivo — Programar cliente/Reasignar
+// profesor/Agendar masaje (banderas programadoPorAdmin/asignadoPorAdmin/agendadoPorAdmin) Y TAMBIÉN
+// Cancelar clase (estado==='cancelada', agregado 27/07/2026 por el mismo motivo, ver la nota junto a
+// openCancelModal) — que TODAVÍA no se hayan confirmado guardados en el servidor (bandera
+// `sincronizadoServidor`, se pone en true apenas el servidor confirma `ok:true` — ver
+// `gasGuardarScheduleOverride_`). Se agregó porque varios cambios reales de Andersson se habían hecho
+// ANTES de que el Apps Script tuviera desplegadas las acciones nuevas
 // (getScheduleOverrides/saveScheduleOverride) — en ese momento el guardado fallaba en silencio (sin
 // avisar), así que esos cambios quedaron atrapados solo en su dispositivo. Filtrar por
-// `sincronizadoServidor` (en vez de reenviar TODO lo del administrador siempre) es lo que permite que
-// esto corra automáticamente cada 2 minutos sin volverse cada vez más pesado ni golpear el Apps
-// Script innecesariamente con datos que ya se sabe que llegaron bien.
+// `sincronizadoServidor` (en vez de reenviar TODO siempre) es lo que permite que esto corra
+// automáticamente cada 2 minutos sin volverse cada vez más pesado ni golpear el Apps Script
+// innecesariamente con datos que ya se sabe que llegaron bien.
 async function reenviarCambiosLocalesAlServidor_(){
   if(!gasConfigured()) return {ok:false, motivo:'sin-configurar'};
-  const pendientes = SCHEDULE.filter(s=> (s.programadoPorAdmin || s.asignadoPorAdmin || s.agendadoPorAdmin) && !s.sincronizadoServidor);
+  const pendientes = SCHEDULE.filter(s=> (s.programadoPorAdmin || s.asignadoPorAdmin || s.agendadoPorAdmin || s.estado==='cancelada') && !s.sincronizadoServidor);
   if(!pendientes.length) return {ok:true, total:0, enviados:0};
   let enviados = 0;
   for(const s of pendientes){
@@ -1408,16 +1410,19 @@ async function reenviarCambiosLocalesAlServidor_(){
 // manual "Reenviar cambios a todos" no era una solución real ni confiable: hizo una asignación nueva
 // desde el celular (esa sí se vio, porque el guardado directo ya funciona) pero las que ya tenía
 // hechas en el computador seguían sin aparecer, porque nunca llegó a presionar el botón manual. La
-// solución de fondo es que esto NO dependa de que nadie se acuerde de nada: ahora corre solo, en
-// segundo plano, para cualquier dispositivo donde haya entrado el administrador — una vez al abrir la
-// app (junto a la sincronización inicial) y de nuevo en cada ciclo de 2 minutos (junto a
-// syncScheduleOverridesFromServer, ver _schedulePeriodicScheduleOverridesSync). Como
+// solución de fondo es que esto NO dependa de que nadie se acuerde de nada: ahora corre sola, en
+// segundo plano, en CUALQUIER dispositivo con sesión iniciada (antes solo administrador — se amplió
+// el mismo día porque "Cancelar clase" no es una acción exclusiva del administrador, un profesor
+// también puede cancelar su propia clase, y esa cancelación necesita el mismo reenvío automático) —
+// una vez al abrir la app (junto a la sincronización inicial) y de nuevo en cada ciclo de 2 minutos
+// (junto a syncScheduleOverridesFromServer, ver _schedulePeriodicScheduleOverridesSync). Como
 // reenviarCambiosLocalesAlServidor_ ya filtra por `sincronizadoServidor`, en el 99% de los casos no
 // hay nada pendiente y el ciclo no hace ninguna llamada de más — solo entra en acción cuando de
 // verdad hay algo atrapado. Se queda en silencio (sin toast) para no interrumpir; el botón manual
-// sigue disponible para que Andersson pueda forzarlo y ver la confirmación cuando quiera.
-function _intentarReenvioAutomaticoSiEsAdmin_(){
-  if(!(STATE.user && STATE.user.rol==='admin')) return;
+// (solo visible para el administrador) sigue disponible para forzarlo y ver la confirmación cuando
+// se quiera.
+function _intentarReenvioAutomaticoDeCambiosLocales_(){
+  if(!(STATE.user && STATE.user.id)) return;
   reenviarCambiosLocalesAlServidor_().catch(e=>console.warn('Reenvío automático de cambios de horario falló (se reintentará en el siguiente ciclo):', e));
 }
 
@@ -1678,9 +1683,9 @@ function _schedulePeriodicScheduleOverridesSync(){
   if(_scheduleOverridesSyncTimer) clearInterval(_scheduleOverridesSyncTimer);
   _scheduleOverridesSyncTimer = setInterval(()=>{
     syncScheduleOverridesFromServer().catch(e=>console.warn('Sync periódico de cambios de horario falló:', e));
-    // 27/07/2026: en cada ciclo también se intenta el reenvío automático (solo hace algo real si es
-    // administrador Y hay algo pendiente sin confirmar — ver _intentarReenvioAutomaticoSiEsAdmin_).
-    _intentarReenvioAutomaticoSiEsAdmin_();
+    // 27/07/2026: en cada ciclo también se intenta el reenvío automático (solo hace algo real si hay
+    // algo pendiente sin confirmar en ESTE dispositivo — ver _intentarReenvioAutomaticoDeCambiosLocales_).
+    _intentarReenvioAutomaticoDeCambiosLocales_();
   }, 2*60*1000);
 }
 
@@ -1976,12 +1981,13 @@ function bootApp(startModule){
   // importar en qué dispositivo se haya hecho el cambio. Ver la nota completa junto a
   // syncScheduleOverridesFromServer.
   syncScheduleOverridesFromServer().catch(e=>console.warn('Carga inicial de cambios de horario falló:', e));
-  // 27/07/2026: además de TRAER los cambios de otros dispositivos (arriba), si este dispositivo es el
-  // del administrador también se intenta SUBIR automáticamente cualquier cambio propio que por algún
-  // motivo no se haya confirmado en el servidor todavía — ver la nota completa junto a
-  // _intentarReenvioAutomaticoSiEsAdmin_. Esto es lo que hace innecesario acordarse de presionar
-  // "Reenviar cambios a todos" a mano.
-  _intentarReenvioAutomaticoSiEsAdmin_();
+  // 27/07/2026: además de TRAER los cambios de otros dispositivos (arriba), este dispositivo también
+  // intenta SUBIR automáticamente cualquier cambio propio (de este usuario, cualquier rol) que por
+  // algún motivo no se haya confirmado en el servidor todavía — ver la nota completa junto a
+  // _intentarReenvioAutomaticoDeCambiosLocales_. Esto es lo que hace innecesario acordarse de
+  // presionar "Reenviar cambios a todos" a mano, y cubre igual las cancelaciones de clase (que
+  // cualquier profesor puede hacer, no solo el administrador).
+  _intentarReenvioAutomaticoDeCambiosLocales_();
   syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
@@ -2776,6 +2782,16 @@ function openCancelModal(id){
       REGISTROS.push(cancelacionRegistro);
       { const clienteDelCancel = CLIENTES.find(c=>c.id===s.clienteId); if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
       saveState();
+      // 27/07/2026: bug real reportado por Andersson — canceló la clase de Sebastian Garay del
+      // miércoles y en el celular seguía saliendo como si no se hubiera cancelado. Causa: esta
+      // acción SOLO viajaba a otros dispositivos vía REGISTROS + aplicarCancelacionRegistrada_, que
+      // solo se aplica cuando un mes se expande DE CERO desde la plantilla — un dispositivo que ya
+      // tenía este mes cacheado en localStorage (el caso normal, día a día) nunca volvía a mirar
+      // REGISTROS para ese slot puntual, así que la cancelación se quedaba sin verse. Igual que se
+      // hizo el mismo día con Programar cliente/Reasignar profesor/Agendar masaje: se sube también
+      // como SCHEDULE_OVERRIDES, que sí se reaplica sobre meses ya expandidos cada 2 minutos en
+      // cualquier dispositivo (ver syncScheduleOverridesFromServer/applyScheduleOverridesToMonth_).
+      gasGuardarScheduleOverride_(s);
       NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cancelación registrada', cuerpo:`${clienteNombre(s.clienteId)} — ${CANCEL_META[s.tipoCancelacion].label.toLowerCase()} el ${fmtFechaCorta(s.fecha)}, registrada por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
       renderNotifDrawer();
       closeModal();
@@ -3643,7 +3659,12 @@ function openEditarCancelacionModal(registroId){
     const h = HISTORIAL.find(x=>x.clienteId===r.clienteId && x.fecha===fechaAnterior && x.estado==='cancelada');
     if(h){ h.fecha=r.fecha; h.tipoCancelacion=r.tipoCancelacion; h.observacion=r.detalle; h.fechaHoraCancelacion=r.fechaHoraCancelacion; }
     const sSched = SCHEDULE.find(x=>x.clienteId===r.clienteId && x.fecha===fechaAnterior && x.estado==='cancelada');
-    if(sSched){ sSched.fecha=r.fecha; sSched.tipoCancelacion=r.tipoCancelacion; sSched.observacion=r.detalle; sSched.fechaHoraCancelacion=r.fechaHoraCancelacion; }
+    if(sSched){
+      sSched.fecha=r.fecha; sSched.tipoCancelacion=r.tipoCancelacion; sSched.observacion=r.detalle; sSched.fechaHoraCancelacion=r.fechaHoraCancelacion;
+      // 27/07/2026: mismo motivo que en openCancelModal — sin esto, la corrección solo se vería en
+      // este dispositivo hasta que algún otro reexpandiera el mes de cero.
+      gasGuardarScheduleOverride_(sSched);
+    }
     { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
     saveState();
     closeModal();
