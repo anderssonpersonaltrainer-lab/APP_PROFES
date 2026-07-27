@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-26.5">
+<meta name="app-version" content="2026-07-27.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1342,9 +1342,17 @@ function fechaParaDiaEnSemanaDe_(fechaBaseISO, nuevoDia){
 async function gasGuardarScheduleOverride_(slot){
   if(!gasConfigured()) return;
   try{
-    await gasCall('saveScheduleOverride', null, {id: slot.id, data: JSON.stringify(slot)});
+    const res = await gasCall('saveScheduleOverride', null, {id: slot.id, data: JSON.stringify(slot)});
+    if(res && res.ok){
+      // 27/07/2026: se marca el propio objeto como ya confirmado en el servidor — esto es lo que le
+      // permite a `reenviarCambiosLocalesAlServidor_()` (ahora automática, ver más abajo) saber que
+      // este cambio en particular NO hace falta reenviarlo de nuevo en el siguiente ciclo, en vez de
+      // reenviar TODO lo del administrador una y otra vez cada 2 minutos para siempre.
+      slot.sincronizadoServidor = true;
+      saveState();
+    }
   }catch(e){
-    console.warn('gasGuardarScheduleOverride_ falló (el cambio queda guardado solo en este dispositivo por ahora):', e);
+    console.warn('gasGuardarScheduleOverride_ falló (el cambio queda guardado solo en este dispositivo por ahora, se reintentará solo más adelante):', e);
   }
 }
 // Trae TODOS los cambios puntuales que cualquier dispositivo haya guardado en el Apps Script, los
@@ -1366,31 +1374,51 @@ async function syncScheduleOverridesFromServer(){
     console.warn('syncScheduleOverridesFromServer falló (se usan los cambios ya guardados en este dispositivo):', e);
   }
 }
-// 26/07/2026 — herramienta de recuperación/red de seguridad ("Reenviar cambios a todos", botón solo
-// para administrador en Horario): vuelve a subir al servidor TODOS los cambios puntuales que ya
-// existen en SCHEDULE en este dispositivo (identificados por sus banderas programadoPorAdmin/
-// asignadoPorAdmin/agendadoPorAdmin), sin importar cuándo se hicieron. Se agregó porque varios
-// cambios reales de Andersson se habían hecho ANTES de que el Apps Script tuviera desplegadas las
-// acciones nuevas (getScheduleOverrides/saveScheduleOverride) — en ese momento el guardado fallaba
-// en silencio (sin avisar), así que esos cambios quedaron atrapados solo en su dispositivo. Este
-// botón permite "reconciliar" todo de una sola vez, y queda disponible de forma permanente como red
-// de seguridad por si algún guardado individual vuelve a fallar en silencio en el futuro (ej. por un
-// corte de red momentáneo justo al confirmar un cambio).
+// 26/07/2026 — red de seguridad de reconciliación ("Reenviar cambios a todos", antes solo un botón
+// manual del administrador en Horario; 27/07/2026: AHORA TAMBIÉN corre sola, automáticamente, ver
+// `_intentarReenvioAutomaticoSiEsAdmin_()` más abajo): vuelve a subir al servidor todos los cambios
+// puntuales que ya existen en SCHEDULE en este dispositivo (identificados por sus banderas
+// programadoPorAdmin/asignadoPorAdmin/agendadoPorAdmin) que TODAVÍA no se hayan confirmado guardados
+// en el servidor (bandera `sincronizadoServidor`, se pone en true apenas el servidor confirma
+// `ok:true` — ver `gasGuardarScheduleOverride_`). Se agregó porque varios cambios reales de Andersson
+// se habían hecho ANTES de que el Apps Script tuviera desplegadas las acciones nuevas
+// (getScheduleOverrides/saveScheduleOverride) — en ese momento el guardado fallaba en silencio (sin
+// avisar), así que esos cambios quedaron atrapados solo en su dispositivo. Filtrar por
+// `sincronizadoServidor` (en vez de reenviar TODO lo del administrador siempre) es lo que permite que
+// esto corra automáticamente cada 2 minutos sin volverse cada vez más pesado ni golpear el Apps
+// Script innecesariamente con datos que ya se sabe que llegaron bien.
 async function reenviarCambiosLocalesAlServidor_(){
   if(!gasConfigured()) return {ok:false, motivo:'sin-configurar'};
-  const pendientes = SCHEDULE.filter(s=> s.programadoPorAdmin || s.asignadoPorAdmin || s.agendadoPorAdmin);
+  const pendientes = SCHEDULE.filter(s=> (s.programadoPorAdmin || s.asignadoPorAdmin || s.agendadoPorAdmin) && !s.sincronizadoServidor);
   if(!pendientes.length) return {ok:true, total:0, enviados:0};
   let enviados = 0;
   for(const s of pendientes){
     try{
       const res = await gasCall('saveScheduleOverride', null, {id: s.id, data: JSON.stringify(s)});
-      if(res && res.ok) enviados++;
+      if(res && res.ok){ enviados++; s.sincronizadoServidor = true; }
     }catch(e){
       console.warn('reenviarCambiosLocalesAlServidor_: falló uno de los envíos', s.id, e);
     }
   }
+  if(enviados>0) saveState();
   await syncScheduleOverridesFromServer();
   return {ok:true, total:pendientes.length, enviados};
+}
+// 27/07/2026 — Andersson reportó (con toda razón) que depender de que él recuerde presionar el botón
+// manual "Reenviar cambios a todos" no era una solución real ni confiable: hizo una asignación nueva
+// desde el celular (esa sí se vio, porque el guardado directo ya funciona) pero las que ya tenía
+// hechas en el computador seguían sin aparecer, porque nunca llegó a presionar el botón manual. La
+// solución de fondo es que esto NO dependa de que nadie se acuerde de nada: ahora corre solo, en
+// segundo plano, para cualquier dispositivo donde haya entrado el administrador — una vez al abrir la
+// app (junto a la sincronización inicial) y de nuevo en cada ciclo de 2 minutos (junto a
+// syncScheduleOverridesFromServer, ver _schedulePeriodicScheduleOverridesSync). Como
+// reenviarCambiosLocalesAlServidor_ ya filtra por `sincronizadoServidor`, en el 99% de los casos no
+// hay nada pendiente y el ciclo no hace ninguna llamada de más — solo entra en acción cuando de
+// verdad hay algo atrapado. Se queda en silencio (sin toast) para no interrumpir; el botón manual
+// sigue disponible para que Andersson pueda forzarlo y ver la confirmación cuando quiera.
+function _intentarReenvioAutomaticoSiEsAdmin_(){
+  if(!(STATE.user && STATE.user.rol==='admin')) return;
+  reenviarCambiosLocalesAlServidor_().catch(e=>console.warn('Reenvío automático de cambios de horario falló (se reintentará en el siguiente ciclo):', e));
 }
 
 /* ---------- LECTURA AUTOMÁTICA (liviana): trae la última plantilla publicada por el admin ----------
@@ -1648,7 +1676,12 @@ function _schedulePeriodicClienteDatosSync(){
 let _scheduleOverridesSyncTimer = null;
 function _schedulePeriodicScheduleOverridesSync(){
   if(_scheduleOverridesSyncTimer) clearInterval(_scheduleOverridesSyncTimer);
-  _scheduleOverridesSyncTimer = setInterval(()=>{ syncScheduleOverridesFromServer().catch(e=>console.warn('Sync periódico de cambios de horario falló:', e)); }, 2*60*1000);
+  _scheduleOverridesSyncTimer = setInterval(()=>{
+    syncScheduleOverridesFromServer().catch(e=>console.warn('Sync periódico de cambios de horario falló:', e));
+    // 27/07/2026: en cada ciclo también se intenta el reenvío automático (solo hace algo real si es
+    // administrador Y hay algo pendiente sin confirmar — ver _intentarReenvioAutomaticoSiEsAdmin_).
+    _intentarReenvioAutomaticoSiEsAdmin_();
+  }, 2*60*1000);
 }
 
 // 24/07/2026: se agregaron 'tipoCancelacion' y 'fechaHoraCancelacion' AL FINAL (nunca en medio —
@@ -1943,6 +1976,12 @@ function bootApp(startModule){
   // importar en qué dispositivo se haya hecho el cambio. Ver la nota completa junto a
   // syncScheduleOverridesFromServer.
   syncScheduleOverridesFromServer().catch(e=>console.warn('Carga inicial de cambios de horario falló:', e));
+  // 27/07/2026: además de TRAER los cambios de otros dispositivos (arriba), si este dispositivo es el
+  // del administrador también se intenta SUBIR automáticamente cualquier cambio propio que por algún
+  // motivo no se haya confirmado en el servidor todavía — ver la nota completa junto a
+  // _intentarReenvioAutomaticoSiEsAdmin_. Esto es lo que hace innecesario acordarse de presionar
+  // "Reenviar cambios a todos" a mano.
+  _intentarReenvioAutomaticoSiEsAdmin_();
   syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
