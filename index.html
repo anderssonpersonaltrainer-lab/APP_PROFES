@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-27.4">
+<meta name="app-version" content="2026-07-27.5">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3385,6 +3385,11 @@ function openAddRegistroModal(){
   const now = isoDate(new Date());
   registroCompaneros = [];
   registroCompanerosSearch = '';
+  // 27/07/2026: pedido explícito de Andersson — el valor del masaje ($130.000) es información solo
+  // para el administrador, no debe verla el profesor al registrar la sesión. "Nuevo registro" lo
+  // abre CUALQUIER rol (a diferencia de "Editar registro", que ya es exclusivo del administrador),
+  // así que aquí sí hace falta ocultar el precio explícitamente para el profesor.
+  const etiquetaMasaje = STATE.user.rol==='admin' ? 'Masaje ($130.000)' : 'Masaje';
   openModal(`
     <div class="modal-head">
       <h3>Nuevo registro de sesión</h3>
@@ -3400,7 +3405,7 @@ function openAddRegistroModal(){
             <select id="rModalidad">
               <option value="Presencial">Presencial</option>
               <option value="Virtual">Virtual</option>
-              <option value="Masaje">Masaje ($130.000)</option>
+              <option value="Masaje">${etiquetaMasaje}</option>
             </select>
           </div>
         </div>
