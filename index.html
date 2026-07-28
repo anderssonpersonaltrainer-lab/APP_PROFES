@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-27.7">
+<meta name="app-version" content="2026-07-28.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1260,7 +1260,17 @@ function buildScheduleFromGridData(data){
         let tipoLabel = 'Entrenamiento adaptado Presencial', lugar = 'Domicilio cliente';
         if(categoria==='virtual'){ tipoLabel='Entrenamiento adaptado Online'; lugar='Online'; }
         else if(categoria==='masaje'){ tipoLabel='Masaje terapéutico'; lugar='Domicilio cliente'; }
-        nuevo.push({id:idBase, clienteId, profesorId:tab.profesorId, dia:diaIdx, hora:extraerHoraDeTexto(texto, bloque.inicio), horaFin:bloque.fin, tipo:tipoLabel, lugar, estado:'pendiente'});
+        // 28/07/2026 — bug real reportado: "toda clase sin importar la hora de inicio dura 1 hora
+        // siempre", pero cuando la clase no arrancaba exactamente en el borde del bloque de la
+        // cuadrícula de Drive (ej. el texto de la celda trae "6:15" pero la fila del Excel es el
+        // bloque 06:00), la hora de fin quedaba en `bloque.fin` (el fin de ESE renglón de la
+        // cuadrícula, pensado solo para ubicar la fila, no la duración real de la clase) — así una
+        // clase que arranca tarde dentro de su bloque se veía con una duración más corta (ej. media
+        // hora) en vez de la hora completa real. Corrección: la hora de fin siempre se calcula sobre
+        // la hora real de inicio (la ya extraída del texto de la celda) + 60 minutos fijos, igual que
+        // en cualquier otro lugar de la app donde se define una clase (Reasignar/Programar/Agendar).
+        const horaRealInicio = extraerHoraDeTexto(texto, bloque.inicio);
+        nuevo.push({id:idBase, clienteId, profesorId:tab.profesorId, dia:diaIdx, hora:horaRealInicio, horaFin:calcHoraFin(horaRealInicio, 60), tipo:tipoLabel, lugar, estado:'pendiente'});
       });
     }
   });
