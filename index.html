@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-27.3">
+<meta name="app-version" content="2026-07-27.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3289,7 +3289,7 @@ function renderTablaRegistro(){
         return `
       <tr>
         <td>${i+1}</td><td>${fmtFechaCorta(r.fecha)}</td><td style="white-space:nowrap;">${profesorNombre(r.profesorId)}</td>
-        <td><span class="pill ${r.modalidad==='Virtual'?'pill-accent':'pill-teal'}" style="font-size:10.5px;">${r.modalidad||'Presencial'}</span></td>
+        <td><span class="pill ${r.modalidad==='Virtual'?'pill-accent':r.modalidad==='Masaje'?'pill-warning':'pill-teal'}" style="font-size:10.5px;">${r.modalidad||'Presencial'}</span></td>
         <td><span class="pill" style="font-size:10.5px;${estadoStyle}">${estadoLabel}</span></td>
         <td>${cellFor(r.preSis)}</td><td>${cellFor(r.preDia)}</td><td>${cellFor(r.prePpm)}</td><td>${r.preSpo2!=null&&r.preSpo2!==''?r.preSpo2+'%':dash}</td>
         <td>${cellFor(r.postSis)}</td><td>${cellFor(r.postDia)}</td><td>${cellFor(r.postPpm)}</td><td>${r.postSpo2!=null&&r.postSpo2!==''?r.postSpo2+'%':dash}</td>
@@ -3400,6 +3400,7 @@ function openAddRegistroModal(){
             <select id="rModalidad">
               <option value="Presencial">Presencial</option>
               <option value="Virtual">Virtual</option>
+              <option value="Masaje">Masaje ($130.000)</option>
             </select>
           </div>
         </div>
@@ -3582,8 +3583,9 @@ function openEditarRegistroModal(registroId){
           <div class="field"><label>Fecha</label><input type="date" id="eFecha" value="${r.fecha}"></div>
           <div class="field"><label>Modalidad</label>
             <select id="eModalidad">
-              <option value="Presencial" ${r.modalidad!=='Virtual'?'selected':''}>Presencial</option>
+              <option value="Presencial" ${(r.modalidad!=='Virtual'&&r.modalidad!=='Masaje')?'selected':''}>Presencial</option>
               <option value="Virtual" ${r.modalidad==='Virtual'?'selected':''}>Virtual</option>
+              <option value="Masaje" ${r.modalidad==='Masaje'?'selected':''}>Masaje ($130.000)</option>
             </select>
           </div>
         </div>
@@ -3863,11 +3865,18 @@ function promedioSaludTexto(promedio){
 // registro guardado cuenta como sesión dictada, tenga o no datos de salud completos, sin importar
 // en qué dispositivo se haya creado o sincronizado. Se excluyen explícitamente los registros de
 // tipo cancelación (estado==='cancelada') — esos se cuentan aparte, ver cancelacionesDelMes.
+// 27/07/2026: pedido explícito de Andersson — se agrega "Masaje" como una tercera opción de
+// modalidad en Registro de sesiones (junto a Presencial/Virtual), con un costo FIJO de $130.000
+// para el administrador, sin importar la tarifa individual de cada cliente (que sí aplica para
+// Entrenamiento adaptado Presencial/Virtual). Se usa en computeInvoiceValues (cuenta de cobro),
+// resumenValorProfesorMes (resumen por profesor) y el subtotal en pantalla de "Registro de
+// sesiones" (que ya reutiliza computeInvoiceValues, así que hereda esto automáticamente).
+const COSTO_MASAJE = 130000;
 function sesionesCompletadasDelMes(clienteId, monthStr){
   return REGISTROS
     .filter(r=>r.clienteId===clienteId && r.estado!=='cancelada' && r.fecha && r.fecha.startsWith(monthStr))
     .sort((a,b)=>a.fecha.localeCompare(b.fecha))
-    .map(r=>({fecha:r.fecha, profesorId:r.profesorId, tipo:`Entrenamiento adaptado ${r.modalidad==='Virtual'?'Online':'Presencial'}`, estado:'completada'}));
+    .map(r=>({fecha:r.fecha, profesorId:r.profesorId, modalidad:r.modalidad, tipo: r.modalidad==='Masaje' ? 'Masaje' : `Entrenamiento adaptado ${r.modalidad==='Virtual'?'Online':'Presencial'}`, estado:'completada'}));
 }
 
 // 24/07/2026: las cancelaciones (registradas desde el módulo Horario) ahora también se guardan
@@ -3893,12 +3902,17 @@ function cancelacionesDelMes(clienteId, monthStr){
 function computeInvoiceValues(clienteId, monthStr){
   const cliente = CLIENTES.find(c=>c.id===clienteId);
   const entries = [...sesionesCompletadasDelMes(clienteId, monthStr), ...cancelacionesDelMes(clienteId, monthStr)].sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  let anticipadaCount = 0, qtyCompletada=0, qtyAnticipadaCobrada=0, qtySobreTiempo=0, qtyProfesor=0;
+  let anticipadaCount = 0, qtyCompletada=0, qtyMasaje=0, qtyAnticipadaCobrada=0, qtySobreTiempo=0, qtyProfesor=0;
   const detalle = [];
   entries.forEach(h=>{
     if(h.estado==='completada'){
-      qtyCompletada++;
-      detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:h.tipo, costo:cliente.tarifa, salud:registroSaludTexto(clienteId, h.fecha)});
+      if(h.modalidad==='Masaje'){
+        qtyMasaje++;
+        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:h.tipo, costo:COSTO_MASAJE, salud:registroSaludTexto(clienteId, h.fecha)});
+      } else {
+        qtyCompletada++;
+        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:h.tipo, costo:cliente.tarifa, salud:registroSaludTexto(clienteId, h.fecha)});
+      }
     } else if(h.estado==='cancelada'){
       if(h.tipoCancelacion==='anticipada'){
         anticipadaCount++;
@@ -3924,9 +3938,12 @@ function computeInvoiceValues(clienteId, monthStr){
   });
   const items = [
     {n:1, cant:qtyCompletada, desc:'Entrenamiento adaptado Presencial', unit:cliente.tarifa, total:qtyCompletada*cliente.tarifa},
-    {n:2, cant:qtyAnticipadaCobrada, desc:'Cancelación anticipada presencial', unit:Math.round(cliente.tarifa*0.20), total:qtyAnticipadaCobrada*Math.round(cliente.tarifa*0.20)},
-    {n:3, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
-    {n:4, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
+    // 27/07/2026: nuevo renglón fijo — solo aparece en la cuenta de cobro cuando hubo al menos un
+    // masaje ese mes (ver itemsVisibles: los ítems con cant===0 y n!==1 se ocultan solos).
+    {n:2, cant:qtyMasaje, desc:'Masaje', unit:COSTO_MASAJE, total:qtyMasaje*COSTO_MASAJE},
+    {n:3, cant:qtyAnticipadaCobrada, desc:'Cancelación anticipada presencial', unit:Math.round(cliente.tarifa*0.20), total:qtyAnticipadaCobrada*Math.round(cliente.tarifa*0.20)},
+    {n:4, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
+    {n:5, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
   ];
   const total = items.reduce((a,i)=>a+i.total,0);
   return {cliente, items, total, detalle};
@@ -4698,7 +4715,9 @@ function resumenValorProfesorMes(profesorId, monthStr){
     let anticipadaCount = 0;
     entries.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)).forEach(h=>{
       if(h.estado!=='cancelada'){
-        valorClases += cliente.tarifa;
+        // 27/07/2026: un masaje vale $130.000 fijo, no la tarifa individual del cliente — ver
+        // COSTO_MASAJE y la nota completa junto a sesionesCompletadasDelMes.
+        valorClases += h.modalidad==='Masaje' ? COSTO_MASAJE : cliente.tarifa;
       } else {
         if(h.tipoCancelacion==='anticipada'){
           anticipadaCount++;
