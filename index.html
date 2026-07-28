@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-28.1">
+<meta name="app-version" content="2026-07-28.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1274,7 +1274,37 @@ function buildScheduleFromGridData(data){
       });
     }
   });
-  return {nuevo, sinCoincidencia};
+  // 28/07/2026 — bug real reportado (con captura de pantalla) justo después del arreglo de la hora
+  // de fin: la profesora Karen tenía a "Maria Teresa" con Masaje apareciendo DOS VECES, exactamente
+  // con el mismo horario (12:00-13:00) las dos veces. Causa real: en el Excel de Drive, la misma cita
+  // queda escrita más de una vez en la cuadrícula (por ejemplo en dos renglones distintos que caen
+  // dentro del mismo rango horario, o el mismo bloque repetido) — cada renglón se leía como su propia
+  // fila independiente, generando una cita real por cada una. Un primer intento de arreglo (detectar
+  // solo renglones CONTIGUOS con el mismo texto) no cubría este caso, porque aquí las dos filas ya
+  // traían el mismo rango completo "12:00-13:00" cada una, no dos medios bloques consecutivos.
+  // Corrección definitiva: al final, después de armar TODA la lista de citas de clientes de la
+  // cuadrícula, se filtran duplicados por profesor+día+cliente+tipo de sesión cuyo horario se
+  // solapa — se conserva solo la primera aparición (la de hora de inicio más temprana) y se descartan
+  // las demás. Se hace como un paso aparte, después de que ya se le asignó su id a cada fila, para no
+  // alterar la numeración de las demás citas de la cuadrícula (evita romper cualquier
+  // Reasignar/Programar/Agendar/Cancelar ya guardado en `SCHEDULE_OVERRIDES` referenciando esos ids).
+  // Nota: la comparación exige que el HORARIO se solape de verdad (no solo el mismo día) — así un
+  // cliente con dos sesiones reales y distintas el mismo día (ej. entrenamiento en la mañana y masaje
+  // en la tarde, o dos entrenamientos en horas distintas) sigue mostrando ambas, sin fusionarlas.
+  const clientesNuevo = nuevo.filter(e=>e.clienteId);
+  const otrosNuevo = nuevo.filter(e=>!e.clienteId);
+  const vistos = [];
+  const dedupClientes = [];
+  clientesNuevo.forEach(entry=>{
+    const duplicado = vistos.find(v=>
+      v.profesorId===entry.profesorId && v.dia===entry.dia && v.clienteId===entry.clienteId && v.tipo===entry.tipo &&
+      entry.hora < v.horaFin && v.hora < entry.horaFin // rangos [hora,horaFin) se solapan
+    );
+    if(duplicado) return; // misma cita repetida en la cuadrícula — se descarta, ya se conservó la primera
+    vistos.push(entry);
+    dedupClientes.push(entry);
+  });
+  return {nuevo: [...otrosNuevo, ...dedupClientes], sinCoincidencia};
 }
 let _lastScheduleSyncAt = null;
 // 26/07/2026: marca de versión de la plantilla publicada que YA está aplicada en este dispositivo
