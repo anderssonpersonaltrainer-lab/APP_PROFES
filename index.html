@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-28.3">
+<meta name="app-version" content="2026-07-28.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1391,6 +1391,48 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
     if(existente) Object.assign(existente, o);
     else SCHEDULE.push(Object.assign({}, o));
   });
+  // 28/07/2026 — bug real reportado: Andersson presionó "Actualizar horario" (como se le indicó) y el
+  // masaje de Maria Teresa se siguió viendo duplicado. Causa real, distinta del primer intento de
+  // arreglo del mismo día: un override (ej. un masaje agendado en algún momento con el botón "Agendar
+  // masaje") y una fila de la plantilla recurrente de Drive pueden representar la MISMA cita real,
+  // pero como tienen ids distintos (`sm<timestamp>` el override vs `dr<N>_<fecha>` la plantilla), el
+  // chequeo `SCHEDULE.find(x=>x.id===o.id)` de arriba nunca los reconoce como la misma cita — el
+  // override siempre termina agregándose COMO UNA FILA NUEVA junto a la de la plantilla, sin importar
+  // cuántas veces se vuelva a leer el horario desde Drive. Corrección: después de aplicar los
+  // overrides de este mes, se filtran duplicados reales (mismo profesor + misma fecha + mismo tipo de
+  // sesión, con horario que se solapa) — si dos filas resultan ser la misma cita, se conserva la más
+  // "significativa" (una cancelación real nunca se pierde; si no hay cancelación, se prefiere la que
+  // tenga alguna acción explícita del administrador sobre la que viene solo de la plantilla).
+  const deEsteMes = SCHEDULE.filter(s=>s.fecha && s.fecha.startsWith(mesStr));
+  const deOtrosMeses = SCHEDULE.filter(s=>!(s.fecha && s.fecha.startsWith(mesStr)));
+  SCHEDULE = [...deOtrosMeses, ...dedupeSolapados_(deEsteMes, e=>`${e.profesorId}|${e.fecha}|${e.tipo}`)];
+}
+// Filtra citas duplicadas de una lista de filas de horario: dos filas se consideran la MISMA cita
+// cuando `claveFn` da la misma clave (ej. profesor+fecha+tipo, o profesor+día+tipo) Y su horario
+// [hora, horaFin) se solapa de verdad — así un cliente con dos citas reales y distintas el mismo
+// día/fecha (ej. entrenamiento en la mañana y masaje en la tarde) nunca se fusiona por error. Entre
+// dos duplicadas se conserva la de mayor "prioridad": una cancelación real nunca se descarta, y entre
+// dos sin cancelar se prefiere la que tenga alguna acción explícita del administrador
+// (asignadoPorAdmin/programadoPorAdmin/agendadoPorAdmin) sobre una fila plana de la plantilla.
+function dedupeSolapados_(entries, claveFn){
+  const prioridad = e => (e.estado==='cancelada'?2:0) + ((e.asignadoPorAdmin||e.programadoPorAdmin||e.agendadoPorAdmin)?1:0);
+  const controlPorGrupo = {};
+  const salida = [];
+  entries.forEach(entry=>{
+    if(!entry.clienteId){ salida.push(entry); return; } // Desplazamiento/Disponible/Almuerzo: sin tocar
+    const grupo = claveFn(entry);
+    const lista = (controlPorGrupo[grupo] = controlPorGrupo[grupo] || []);
+    const idxExistente = lista.findIndex(v=> entry.hora < (v.horaFin||v.hora) && v.hora < (entry.horaFin||entry.hora));
+    if(idxExistente<0){ lista.push(entry); salida.push(entry); return; }
+    const existente = lista[idxExistente];
+    if(prioridad(entry) > prioridad(existente)){
+      const outIdx = salida.indexOf(existente);
+      if(outIdx>=0) salida[outIdx] = entry;
+      lista[idxExistente] = entry;
+    }
+    // si `entry` no gana prioridad, se descarta silenciosamente — ya se conservó `existente`
+  });
+  return salida;
 }
 // Vuelve a aplicar `SCHEDULE_OVERRIDES` sobre TODOS los meses ya expandidos en este dispositivo —
 // se usa después de traer overrides nuevos del servidor (`syncScheduleOverridesFromServer`), para
