@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-27.6">
+<meta name="app-version" content="2026-07-27.7">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -907,6 +907,7 @@ function saveState(){
   try{
     const data = {
       REGISTROS, SCHEDULE, SCHEDULE_TEMPLATE, SCHEDULE_EXPANDED_MONTHS, SCHEDULE_TEMPLATE_VERSION, SCHEDULE_OVERRIDES, HISTORIAL, NOTIFICACIONES, DOCS_ENVIADOS, SUSPENSIONES, CLIENTES,
+      clientesDataVersion: (typeof CURRENT_VERSION!=='undefined' ? CURRENT_VERSION : null),
       INVOICE_COUNTERS, savedAt: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -927,7 +928,43 @@ function loadState(){
     if(Array.isArray(data.NOTIFICACIONES)) NOTIFICACIONES = data.NOTIFICACIONES;
     if(Array.isArray(data.DOCS_ENVIADOS)) DOCS_ENVIADOS = data.DOCS_ENVIADOS;
     if(Array.isArray(data.SUSPENSIONES)) SUSPENSIONES = data.SUSPENSIONES;
-    if(Array.isArray(data.CLIENTES)) CLIENTES.splice(0, CLIENTES.length, ...data.CLIENTES);
+    // 28/07/2026 — bug real reportado: Andersson dividió a Jorge/Camila en dos clientes (y otros
+    // cambios de datos de clientes) en el código, publicó, pero en su celular seguía viendo el
+    // cliente viejo combinado "Jorge Restrepo y Maria Camila" y no dejaba agregar acompañante.
+    // Causa: CLIENTES se guardaba completo en localStorage (para no perder tarifa/anamnesis
+    // sincronizadas de Drive ni el estado "cerrado definitivamente"), y loadState() SIEMPRE
+    // reemplazaba el arreglo fresco recién cargado del archivo nuevo por la copia vieja guardada
+    // en ese dispositivo — sin importar que el código nuevo trajera clientes nuevos/divididos/
+    // renombrados. Cualquier cambio futuro a CLIENTES (agregar cliente, dividir uno, corregir un
+    // nombre, etc.) quedaba "atrapado" para siempre en cada dispositivo que ya tuviera un guardado
+    // local previo, sin ninguna forma de que se corrigiera solo.
+    // Arreglo: se compara la versión de la app con la que estaba guardada cuando se hizo el
+    // respaldo (clientesDataVersion, junto a CURRENT_VERSION del mecanismo de auto-actualización).
+    // Si coinciden (mismo código, solo se recargó la página), se restaura el arreglo completo tal
+    // cual como antes. Si NO coinciden (llegó código nuevo), se parte del arreglo fresco definido
+    // en el propio código — que ya trae la estructura correcta de clientes — y solo se copian por
+    // encima los campos que de verdad son estado mutable de este dispositivo (tarifa y anamnesis
+    // sincronizadas de Drive, y si el cliente fue cerrado definitivamente), por id, y solo para
+    // clientes que todavía existen en el código nuevo. Así nunca se pierde una sincronización real,
+    // pero un cambio estructural de clientes se aplica de inmediato, sin depender de que alguien
+    // borre el almacenamiento local a mano.
+    if(Array.isArray(data.CLIENTES)){
+      const versionCoincide = data.clientesDataVersion !== undefined && data.clientesDataVersion !== null
+        && typeof CURRENT_VERSION!=='undefined' && data.clientesDataVersion === CURRENT_VERSION;
+      if(versionCoincide){
+        CLIENTES.splice(0, CLIENTES.length, ...data.CLIENTES);
+      }else{
+        const porId = {};
+        data.CLIENTES.forEach(c=>{ if(c && c.id) porId[c.id] = c; });
+        CLIENTES.forEach(c=>{
+          const anterior = porId[c.id];
+          if(!anterior) return;
+          if(anterior.tarifa!=null) c.tarifa = anterior.tarifa;
+          if(anterior.anamnesisCompleta) c.anamnesisCompleta = anterior.anamnesisCompleta;
+          if(anterior.activo===false) c.activo = false;
+        });
+      }
+    }
     if(data.INVOICE_COUNTERS && typeof data.INVOICE_COUNTERS === 'object'){
       // Se combinan (no se reemplazan) para no perder los contadores reales precargados desde
       // Drive si este navegador todavía no tiene un guardado propio para algún cliente nuevo.
