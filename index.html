@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.1">
+<meta name="app-version" content="2026-07-30.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -552,9 +552,9 @@ const PROFESORES = [
 const PENDIENTE = 'En creación — pendiente de sincronizar desde Drive.';
 const NO_ANAMNESIS = 'En creación — no se encontró pestaña "Anamnesis" en su Excel de Drive.';
 const CLIENTES = [
-  {id:'c1', nombre:'Alberto Acevedo', cc:'79.982.607', edad:'Pendiente', direccion:'Carrera 4 #79B-60, Apto 902, Bogotá', telefono:'317 636 9890', diagnostico:'En creación — no se encontró pestaña "Anamnesis" en su Excel de Drive (solo hay datos de bioimpedancia).', tarifa:60400, activo:true, drive:'1Dtd4UKZT7lAHd0NVTGIZwmykxWoZfHtw'},
-  {id:'c2', nombre:'Alejandro Jimenez', cc:'80.412.369', edad:58, direccion:'Calle 93 #9-46 (203), Bogotá', telefono:'310 204 3659', diagnostico:'Recibe quimioterapia por enfermedad autoinmune (diagnóstico no cerrado al 100%, en estudio si es síndrome de Sjögren). La enfermedad ha afectado sus pulmones, con tos intermitente aunque sin afectar la oxigenación. Entrena 2 veces por semana; se recomienda trabajo de fuerza-movilidad vía pilates con progresión de bandas elásticas, aprovechando el control respiratorio para mejorar la función pulmonar.', tarifa:55000, activo:true, drive:'1ESs87owJ8U-BCbhJj2rtGA6D0TOo2h2P', anamnesisCompleta:`Alejandro Jiménez, 58 años, cc 80412369, dirección: Calle 93 #9-46(203), celular: 3102043659. Alejandro manifiesta recibir quimioterapias como tratamiento de una enfermedad autoinmune. Aunque en un momento se pensó que esta enfermedad era síndrome de Sjögren, Alejandro menciona que su diagnóstico no es al 100%. Por el momento, se sabe que la enfermedad ha afectado sus pulmones, produciendo una tos intermitente a lo largo del día, pero que en general no afecta su oxigenación. A nivel de entrenamiento, Alejandro manifiesta querer entrenar principalmente la fuerza y tiene interés en el pilates, ya que el control de la respiración en coordinación con el movimiento le ayuda a mejorar el funcionamiento de sus pulmones. Por lo anterior y teniendo en cuenta que el usuario solo entrena dos veces por semana, se recomienda entrenar la fuerza-movilidad por medio del pilates, permitiendo progresivamente el uso de implementos como bandas elásticas que permitan el entrenamiento de las extremidades superiores e inferiores.`},
-  {id:'c3', nombre:'Elsa Arango', cc:'35.459.486', edad:66, direccion:'Km 9 vía La Calera, Condominio Teusacá casa 29', telefono:'311 809 4559', diagnostico:'Hipertensión arterial controlada y medicada, baja masa muscular. Antecedente de 3 liberaciones de nervio ciático (quiste sinovial trocánter mayor derecho, 2023). Craneotomía por meningioma gigante (ago. 2025) con sangrado y edema cerebral, hemiparesia derecha con espasticidad flexora en recuperación (habla y camina sola, persisten dificultades de equilibrio). Fisura en C2 (nov. 2025) sin secuelas. Contacto de emergencia: Mauricio Venegas 313 885 7469. EPS Colsanitas.', tarifa:57800, activo:true, drive:'1TuCTLzkdQfqRK5OuVPgVioyju-Zzg2Oy', anamnesisCompleta:`Elsa Lucía Arango, 66 años, CC 35459486, Dirección: Km9 vía la calera. Condominio Teusacá casa 29. Celular 3118094559. E.P.S Colsanitas. Contacto de emergencias Mauricio Venegas 3138857469.
+  {id:'c1', nombre:'Alberto Acevedo', cc:'79.982.607', edad:'Pendiente', direccion:'Carrera 4 #79B-60, Apto 902, Bogotá', telefono:'317 636 9890', diagnostico:'En creación — no se encontró pestaña "Anamnesis" en su Excel de Drive (solo hay datos de bioimpedancia).', tarifa:60400, tarifaOnline:55177, tarifaSemiPresencial:30200, tarifaSemiOnline:27589, tarifaMasaje:130000, activo:true, drive:'1Dtd4UKZT7lAHd0NVTGIZwmykxWoZfHtw'},
+  {id:'c2', nombre:'Alejandro Jimenez', cc:'80.412.369', edad:58, direccion:'Calle 93 #9-46 (203), Bogotá', telefono:'310 204 3659', diagnostico:'Recibe quimioterapia por enfermedad autoinmune (diagnóstico no cerrado al 100%, en estudio si es síndrome de Sjögren). La enfermedad ha afectado sus pulmones, con tos intermitente aunque sin afectar la oxigenación. Entrena 2 veces por semana; se recomienda trabajo de fuerza-movilidad vía pilates con progresión de bandas elásticas, aprovechando el control respiratorio para mejorar la función pulmonar.', tarifa:55000, tarifaOnline:53000, tarifaSemiPresencial:27500, tarifaSemiOnline:26500, tarifaMasaje:130000, activo:true, drive:'1ESs87owJ8U-BCbhJj2rtGA6D0TOo2h2P', anamnesisCompleta:`Alejandro Jiménez, 58 años, cc 80412369, dirección: Calle 93 #9-46(203), celular: 3102043659. Alejandro manifiesta recibir quimioterapias como tratamiento de una enfermedad autoinmune. Aunque en un momento se pensó que esta enfermedad era síndrome de Sjögren, Alejandro menciona que su diagnóstico no es al 100%. Por el momento, se sabe que la enfermedad ha afectado sus pulmones, produciendo una tos intermitente a lo largo del día, pero que en general no afecta su oxigenación. A nivel de entrenamiento, Alejandro manifiesta querer entrenar principalmente la fuerza y tiene interés en el pilates, ya que el control de la respiración en coordinación con el movimiento le ayuda a mejorar el funcionamiento de sus pulmones. Por lo anterior y teniendo en cuenta que el usuario solo entrena dos veces por semana, se recomienda entrenar la fuerza-movilidad por medio del pilates, permitiendo progresivamente el uso de implementos como bandas elásticas que permitan el entrenamiento de las extremidades superiores e inferiores.`},
+  {id:'c3', nombre:'Elsa Arango', cc:'35.459.486', edad:66, direccion:'Km 9 vía La Calera, Condominio Teusacá casa 29', telefono:'311 809 4559', diagnostico:'Hipertensión arterial controlada y medicada, baja masa muscular. Antecedente de 3 liberaciones de nervio ciático (quiste sinovial trocánter mayor derecho, 2023). Craneotomía por meningioma gigante (ago. 2025) con sangrado y edema cerebral, hemiparesia derecha con espasticidad flexora en recuperación (habla y camina sola, persisten dificultades de equilibrio). Fisura en C2 (nov. 2025) sin secuelas. Contacto de emergencia: Mauricio Venegas 313 885 7469. EPS Colsanitas.', tarifa:57800, tarifaOnline:52550, tarifaSemiPresencial:28900, tarifaSemiOnline:26275, tarifaMasaje:130000, activo:true, drive:'1TuCTLzkdQfqRK5OuVPgVioyju-Zzg2Oy', anamnesisCompleta:`Elsa Lucía Arango, 66 años, CC 35459486, Dirección: Km9 vía la calera. Condominio Teusacá casa 29. Celular 3118094559. E.P.S Colsanitas. Contacto de emergencias Mauricio Venegas 3138857469.
 
 Usuaria con hipertensión arterial controlada y medicada. Se observa baja cantidad de masa muscular. La usuaria refiere que en el 2023 le realizaron tres liberaciones de nervio ciático por un quiste sinovial en el trocánter mayor derecho.
 
@@ -563,73 +563,79 @@ El 9 de agosto del 2025, fue llevada al hospital para realizarle un procedimient
 La usuaria fue llevada a un procedimiento quirúrgico el 9 de octubre del 2025 debido a que sufrió una supuesta meningitis bacteriana, sin embargo, no se encontró suficiente evidencia de esta. El primero de noviembre del 2025 sufre una fisura en la vértebra C2, la cual no genera secuelas.
 
 Al día 22 de enero del 2026 Elsa ha mejorado en diversos aspectos: se ha reducido su espasticidad, habla sin dificultad y puede desplazarse sola, sin embargo, aún presenta muchas dificultades con el equilibrio. Podría decirse que su espasticidad es moderada, y los mayores retos se encuentran en reducir la espasticidad flexora en el bíceps izquierdo y recuperar el rango de movilidad del hombro del mismo lado. Respecto a la pierna izquierda, no es evidente la espasticidad como sí la pérdida de fuerza y la disminución y control motor, los cuales se hacen más visibles durante la extensión de cadera en la marcha.`},
-  {id:'c4', nombre:'Alina Villagran', cc:'41.715.143', edad:67, direccion:'Pendiente', telefono:'Contacto emergencia: Angela Guauque 316 468 2432', diagnostico:'Obesidad sarcopénica, hipotiroidismo, diabetes, hipertensión, gonartrosis bilateral (dolor de rodilla). Entrenamiento de fuerza dirigido recomendado por deportólogo; practica danza 2x/semana. EPS Compensar.', tarifa:50000, activo:false, drive:'1eLwehPCsOd2wFrqK0CWVArG9VO59gGSM', anamnesisCompleta:`Luz Alina Villagrán, CC. 41715143. Usuaria de 67 años quien presenta obesidad sarcopénica, hipotiroidismo, diabetes e hipertensión. Presenta también dolor de rodilla por gonartrosis bilateral. Su médico deportólogo le recomendó realizar entrenamiento de fuerza de manera dirigida. Actualmente ella participa de un programa de danza dos veces por semana y realiza dieta prescrita por nutricionista. EPS Compensar. Número de contacto en caso de alguna emergencia: Angela Guauque 3164682432.`},
-  {id:'c5', nombre:'Alexandra Escobar', cc:'1.128.266.904', edad:'Pendiente', direccion:'Carrera 11 #140-41, Torre 1, Apto 902, Bogotá', telefono:'322 917 7589', diagnostico:NO_ANAMNESIS, tarifa:60000, activo:false, drive:'1LoC__Xj74DpNRV-Gk_EOCuddrH77Yc5J'},
-  {id:'c6', nombre:'Alfredo Gomez', cc:'79.984.027', edad:46, direccion:'Calle 108 #18B-41, Apto 401, Bogotá', telefono:'318 800 9850', diagnostico:'Hernia lumbar antigua (asintomática), artrosis leve en rodillas. Objetivo: aumentar fuerza/masa muscular y reducir % de grasa.', tarifa:55000, activo:false, drive:'1ZugFSOxVBZZwZPMrK0-QnpXOR8tH9Bqn', anamnesisCompleta:`Alfredo es un usuario que fue diagnosticado con hernia lumbar hace varios años, pero actualmente no tiene ninguna molestia o sintomatología. Manifiesta tener artrosis leve en las rodillas. Con el fin de mejorar su estado de salud, se realizará entrenamiento de la fuerza guiado, y el entrenamiento cardiovascular se realizará de manera autónoma.`},
-  {id:'c7', nombre:'Andrea Cifuentes', cc:'52.853.961', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:60400, activo:true, drive:'1cx_4EBsuNGeahp3jQhbPJ4rB42VtPLpz'},
-  {id:'c8', nombre:'Annie Rehbein', cc:'41.607.118', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:57800, activo:true, drive:'1YIRNQUPUf7eh4AvB71GBUmfNH_kxSEyY'},
-  {id:'c9', nombre:'Carlos Uribe', cc:'19.122.159', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:60400, activo:true, drive:'13bmoGaj8AiJFjPPfX--0tSA9J567FPoO'},
-  {id:'c10', nombre:'Carolina Sarmiento', cc:'1.019.025.389', edad:'Pendiente', direccion:'Calle 119A #57-61, Bogotá', telefono:'310 489 5413', diagnostico:NO_ANAMNESIS, tarifa:60400, activo:true, drive:'1u4zdFc2Z74j1NotoADqojhECTsuOPbxE'},
-  {id:'c11', nombre:'Catalina Fuentes', cc:'20.027.637', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:60400, activo:true, drive:'1tq90pmW-sUgBJVHXgBp_SoaXTI-DlA3D'},
-  {id:'c12', nombre:'Clara Moreno', cc:'41.558.232', edad:72, direccion:'Calle 78 #7-79, Apto 1201, Bogotá', telefono:'320 444 6308', diagnostico:'Hipertensión controlada, hipotiroidismo, artritis leve, antecedentes familiares cardíacos, anemia controlada. TCE en 2013 (pérdida de olfato, gusto comprometido, con pérdida de equilibrio/fuerza/coordinación observada en tests), psoriasis, dolores lumbares.', tarifa:55000, activo:false, drive:'1ZAzrKCVzyCH3Sq17uacgmDGtmBNMGFAR', anamnesisCompleta:`Clara Moreno, 72 años. Usuaria con hipertensión controlada. Presenta hipotiroidismo y principios leves de artritis. Tiene antecedentes familiares de enfermedades coronarias. Presentó anemia, por lo cual toma medicamentos que la mantienen bajo control. En el 2013 tuvo un accidente por un andamio que le generó trauma cráneo encefálico y a consecuencia del cual pierde el olfato y deja comprometido el sentido del gusto. Aunque ella refiere inicialmente no haber tenido secuelas de otro tipo, durante el senior fitness test y la dinamometría se pudo observar: pérdida de equilibrio, pérdida de fuerza en miembros superiores e inferiores y dificultades coordinativas. La usuaria actualmente no realiza ningún tipo de ejercicio. La usuaria refiere haber sido diagnosticada con psoriasis y presentar dolores lumbares.`},
-  {id:'c13', nombre:'Claudia Castillo', cc:'1.013.579.201', edad:'Pendiente', direccion:'Transversal 23 #95-46, Apto 202, Bogotá', telefono:'317 381 7660', diagnostico:NO_ANAMNESIS, tarifa:50000, activo:false, drive:'1hhqsv3yxNvHp07SIOe-0pxacgyUqr2wa'},
-  {id:'c14', nombre:'Eduardo Pelaez', cc:'8.231.728', edad:82, direccion:'Pendiente', telefono:'Pendiente', diagnostico:'Diabetes controlada con metformina. Daño profundo de cartílago/estructura en una rodilla (evita ejercicios de fuerza y flexión en esa rodilla).', tarifa:57800, activo:true, drive:'1fnH4W1DAT2NAYE0Tw4bmjhPONMNzeJf8', anamnesisCompleta:`Juan Eduardo Peláez Herrán, 82 años. Presenta diabetes controlada con metformina. Tiene un daño profundo en el cartílago y la estructura de una de sus rodillas, por lo cual evita ejercicios que impliquen el desarrollo de la fuerza de la misma así como el movimiento de flexión.`},
-  {id:'c15', nombre:'Elisa Shlegel', cc:'20.172.271', edad:87, direccion:'Pendiente', telefono:'320 889 0262', diagnostico:'Reemplazo bilateral de cadera hace más de 20 años (al 2023).', tarifa:55200, activo:true, drive:'178vIVd8RGbhv3l3dr-rPvQmiQM3-Dk2A', anamnesisCompleta:`Elisa Shlegel, 87 años, nació el 3 de mayo de 1935. Reemplazo bilateral de cadera hace más de 20 años (al 2023) según refiere.`},
-  {id:'c16', nombre:'Gladys Gutierrez', cc:'41.621.224', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:'En creación — la pestaña "Anamnesis" de su archivo pertenece por error a otra clienta antigua; su diagnóstico propio no está documentado en Drive y debe confirmarse.', tarifa:57800, activo:true, drive:'1-Pq2hMekXQSRVB8_6ZXn4ScaEIYkhyWT'},
-  {id:'c17', nombre:'Guillermo Orjuela Bermeo', cc:'17.142.085', edad:80, direccion:'Calle 87 #7-A-22, Apto 1004, Edificio Bonavista, barrio La Cabrera, Bogotá', telefono:'310 653 5150', diagnostico:'Osteopenia, dolor de espalda torácico, cirugía de hernia inguinal hace ~1.5 años, retracción de cuádriceps/psoas ilíaco, tendencia a hipercifosis. Contacto emergencia: Juan Pablo González Orjuela, 601 218 1794.', tarifa:60400, activo:true, drive:'1ArN_EXQM7VUGJ4GlAlE2n0jxdC7nnFpY', anamnesisCompleta:`21-05-2026. Guillermo Orjuela Bermeo, 80 años, Cc 17142085, Calle 87 #7-A-22, Apto 1004, Edificio Bonavista, barrio La Cabrera, Cel. 3106535150, contacto emergencia: Juan Pablo González Orjuela, tel: 6012181794. Guillermo presenta osteopenia y dolor de espalda a nivel torácico. Fue operado aproximadamente hace un año y medio de una hernia inguinal. La valoración por medio de bioimpedancia no muestra niveles bajos de masa muscular para su edad, y tampoco niveles elevados de grasa corporal.
+  {id:'c4', nombre:'Alina Villagran', cc:'41.715.143', edad:67, direccion:'Pendiente', telefono:'Contacto emergencia: Angela Guauque 316 468 2432', diagnostico:'Obesidad sarcopénica, hipotiroidismo, diabetes, hipertensión, gonartrosis bilateral (dolor de rodilla). Entrenamiento de fuerza dirigido recomendado por deportólogo; practica danza 2x/semana. EPS Compensar.', tarifa:50000, tarifaOnline:50000, tarifaSemiPresencial:25000, tarifaSemiOnline:25000, tarifaMasaje:130000, activo:false, drive:'1eLwehPCsOd2wFrqK0CWVArG9VO59gGSM', anamnesisCompleta:`Luz Alina Villagrán, CC. 41715143. Usuaria de 67 años quien presenta obesidad sarcopénica, hipotiroidismo, diabetes e hipertensión. Presenta también dolor de rodilla por gonartrosis bilateral. Su médico deportólogo le recomendó realizar entrenamiento de fuerza de manera dirigida. Actualmente ella participa de un programa de danza dos veces por semana y realiza dieta prescrita por nutricionista. EPS Compensar. Número de contacto en caso de alguna emergencia: Angela Guauque 3164682432.`},
+  {id:'c5', nombre:'Alexandra Escobar', cc:'1.128.266.904', edad:'Pendiente', direccion:'Carrera 11 #140-41, Torre 1, Apto 902, Bogotá', telefono:'322 917 7589', diagnostico:NO_ANAMNESIS, tarifa:60000, tarifaOnline:50000, tarifaSemiPresencial:30000, tarifaSemiOnline:25000, tarifaMasaje:130000, activo:false, drive:'1LoC__Xj74DpNRV-Gk_EOCuddrH77Yc5J'},
+  {id:'c6', nombre:'Alfredo Gomez', cc:'79.984.027', edad:46, direccion:'Calle 108 #18B-41, Apto 401, Bogotá', telefono:'318 800 9850', diagnostico:'Hernia lumbar antigua (asintomática), artrosis leve en rodillas. Objetivo: aumentar fuerza/masa muscular y reducir % de grasa.', tarifa:55000, tarifaOnline:50000, tarifaSemiPresencial:27500, tarifaSemiOnline:25000, tarifaMasaje:130000, activo:false, drive:'1ZugFSOxVBZZwZPMrK0-QnpXOR8tH9Bqn', anamnesisCompleta:`Alfredo es un usuario que fue diagnosticado con hernia lumbar hace varios años, pero actualmente no tiene ninguna molestia o sintomatología. Manifiesta tener artrosis leve en las rodillas. Con el fin de mejorar su estado de salud, se realizará entrenamiento de la fuerza guiado, y el entrenamiento cardiovascular se realizará de manera autónoma.`},
+  {id:'c7', nombre:'Andrea Cifuentes', cc:'52.853.961', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:60400, tarifaOnline:50000, tarifaSemiPresencial:30200, tarifaSemiOnline:25000, tarifaMasaje:130000, activo:true, drive:'1cx_4EBsuNGeahp3jQhbPJ4rB42VtPLpz'},
+  {id:'c8', nombre:'Annie Rehbein', cc:'41.607.118', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:57800, tarifaOnline:52550, tarifaSemiPresencial:28900, tarifaSemiOnline:26275, tarifaMasaje:130000, activo:true, drive:'1YIRNQUPUf7eh4AvB71GBUmfNH_kxSEyY'},
+  {id:'c9', nombre:'Carlos Uribe', cc:'19.122.159', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:60400, tarifaOnline:55200, tarifaSemiPresencial:30200, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'13bmoGaj8AiJFjPPfX--0tSA9J567FPoO'},
+  {id:'c10', nombre:'Carolina Sarmiento', cc:'1.019.025.389', edad:'Pendiente', direccion:'Calle 119A #57-61, Bogotá', telefono:'310 489 5413', diagnostico:NO_ANAMNESIS, tarifa:60400, tarifaOnline:55200, tarifaSemiPresencial:30200, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'1u4zdFc2Z74j1NotoADqojhECTsuOPbxE'},
+  {id:'c11', nombre:'Catalina Fuentes', cc:'20.027.637', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:NO_ANAMNESIS, tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1tq90pmW-sUgBJVHXgBp_SoaXTI-DlA3D'},
+  {id:'c12', nombre:'Clara Moreno', cc:'41.558.232', edad:72, direccion:'Calle 78 #7-79, Apto 1201, Bogotá', telefono:'320 444 6308', diagnostico:'Hipertensión controlada, hipotiroidismo, artritis leve, antecedentes familiares cardíacos, anemia controlada. TCE en 2013 (pérdida de olfato, gusto comprometido, con pérdida de equilibrio/fuerza/coordinación observada en tests), psoriasis, dolores lumbares.', tarifa:55000, tarifaOnline:50000, tarifaSemiPresencial:27500, tarifaSemiOnline:25000, tarifaMasaje:130000, activo:false, drive:'1ZAzrKCVzyCH3Sq17uacgmDGtmBNMGFAR', anamnesisCompleta:`Clara Moreno, 72 años. Usuaria con hipertensión controlada. Presenta hipotiroidismo y principios leves de artritis. Tiene antecedentes familiares de enfermedades coronarias. Presentó anemia, por lo cual toma medicamentos que la mantienen bajo control. En el 2013 tuvo un accidente por un andamio que le generó trauma cráneo encefálico y a consecuencia del cual pierde el olfato y deja comprometido el sentido del gusto. Aunque ella refiere inicialmente no haber tenido secuelas de otro tipo, durante el senior fitness test y la dinamometría se pudo observar: pérdida de equilibrio, pérdida de fuerza en miembros superiores e inferiores y dificultades coordinativas. La usuaria actualmente no realiza ningún tipo de ejercicio. La usuaria refiere haber sido diagnosticada con psoriasis y presentar dolores lumbares.`},
+  {id:'c13', nombre:'Claudia Castillo', cc:'1.013.579.201', edad:'Pendiente', direccion:'Transversal 23 #95-46, Apto 202, Bogotá', telefono:'317 381 7660', diagnostico:NO_ANAMNESIS, tarifa:50000, tarifaOnline:null, tarifaSemiPresencial:25000, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'1hhqsv3yxNvHp07SIOe-0pxacgyUqr2wa'},
+  {id:'c14', nombre:'Eduardo Pelaez', cc:'8.231.728', edad:82, direccion:'Pendiente', telefono:'Pendiente', diagnostico:'Diabetes controlada con metformina. Daño profundo de cartílago/estructura en una rodilla (evita ejercicios de fuerza y flexión en esa rodilla).', tarifa:57800, tarifaOnline:52550, tarifaSemiPresencial:28900, tarifaSemiOnline:26275, tarifaMasaje:130000, activo:true, drive:'1fnH4W1DAT2NAYE0Tw4bmjhPONMNzeJf8', anamnesisCompleta:`Juan Eduardo Peláez Herrán, 82 años. Presenta diabetes controlada con metformina. Tiene un daño profundo en el cartílago y la estructura de una de sus rodillas, por lo cual evita ejercicios que impliquen el desarrollo de la fuerza de la misma así como el movimiento de flexión.`},
+  {id:'c15', nombre:'Elisa Shlegel', cc:'20.172.271', edad:87, direccion:'Pendiente', telefono:'320 889 0262', diagnostico:'Reemplazo bilateral de cadera hace más de 20 años (al 2023).', tarifa:55200, tarifaOnline:55200, tarifaSemiPresencial:null, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'178vIVd8RGbhv3l3dr-rPvQmiQM3-Dk2A', anamnesisCompleta:`Elisa Shlegel, 87 años, nació el 3 de mayo de 1935. Reemplazo bilateral de cadera hace más de 20 años (al 2023) según refiere.`},
+  {id:'c16', nombre:'Gladys Gutierrez', cc:'41.621.224', edad:'Pendiente', direccion:'Pendiente', telefono:'Pendiente', diagnostico:'En creación — la pestaña "Anamnesis" de su archivo pertenece por error a otra clienta antigua; su diagnóstico propio no está documentado en Drive y debe confirmarse.', tarifa:57800, tarifaOnline:null, tarifaSemiPresencial:28900, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1-Pq2hMekXQSRVB8_6ZXn4ScaEIYkhyWT'},
+  {id:'c17', nombre:'Guillermo Orjuela Bermeo', cc:'17.142.085', edad:80, direccion:'Calle 87 #7-A-22, Apto 1004, Edificio Bonavista, barrio La Cabrera, Bogotá', telefono:'310 653 5150', diagnostico:'Osteopenia, dolor de espalda torácico, cirugía de hernia inguinal hace ~1.5 años, retracción de cuádriceps/psoas ilíaco, tendencia a hipercifosis. Contacto emergencia: Juan Pablo González Orjuela, 601 218 1794.', tarifa:60400, tarifaOnline:55177, tarifaSemiPresencial:30200, tarifaSemiOnline:27589, tarifaMasaje:130000, activo:true, drive:'1ArN_EXQM7VUGJ4GlAlE2n0jxdC7nnFpY', anamnesisCompleta:`21-05-2026. Guillermo Orjuela Bermeo, 80 años, Cc 17142085, Calle 87 #7-A-22, Apto 1004, Edificio Bonavista, barrio La Cabrera, Cel. 3106535150, contacto emergencia: Juan Pablo González Orjuela, tel: 6012181794. Guillermo presenta osteopenia y dolor de espalda a nivel torácico. Fue operado aproximadamente hace un año y medio de una hernia inguinal. La valoración por medio de bioimpedancia no muestra niveles bajos de masa muscular para su edad, y tampoco niveles elevados de grasa corporal.
 
 Con base en los datos recopilados en la anamnesis, la bioimpedancia, la dinamometría y los diferentes tests, así como en las necesidades manifestadas por el usuario, se decide centrar el programa de entrenamiento en el desarrollo de la fuerza, teniendo presente ciertas consideraciones, entre ellas: se debe realizar énfasis en los músculos de la espalda, específicamente en el dorsal ancho y en el trapecio, ya que la postura del usuario está presentando una tendencia a la hipercifosis. El usuario muestra una marcada retracción a nivel de los cuádriceps y los músculos flexores de cadera, entre ellos el psoas ilíaco, por lo cual se debe enfatizar el estiramiento de los mismos durante las sesiones. Se debe ser cauteloso en el manejo de las cargas de entrenamiento, en especial en aquellos ejercicios que requieran flexión de cadera, ya que aunque el usuario superó con éxito la cirugía de hernia inguinal, no está exento de tener otra hernia del mismo tipo. El usuario manifiesta la necesidad de manejar un enfoque integral con el fin de lograr un mejor balance muscular de su cuerpo, por lo cual el programa de entrenamiento debe considerar la globalidad.
 
 Dicho lo anterior y teniendo en cuenta el dolor de espalda, asociado con las condiciones mencionadas, se debe realizar la distribución de las cargas de la siguiente manera: día uno pilates — entrenamiento del core, e incluir dorsal ancho y trapecio; día dos igual al día uno; día tres, entrenamiento clásico de miembros superiores e inferiores. En los tres días realizar los estiramientos según los grupos musculares entrenados, pero en todas las sesiones hacer un pequeño énfasis en el estiramiento de cuádriceps y flexores de cadera. Para los días de pilates pueden manejarse rangos de repeticiones amplios, entre 8 y 20 repeticiones según el nivel de dificultad y respuesta del usuario. Para el día de entrenamiento clásico, series de 20 repeticiones.`},
-  {id:'c18', nombre:'Ilce Tejada', cc:'25.266.011', edad:82, direccion:'Calle 78 #7-98, Apto 802, Edificio Alameda, Bogotá', telefono:'304 547 9708', diagnostico:'Cáncer de colon superado (sin secuelas), fractura de vértebras lumbares por caída con inestabilidad de columna torácica/lumbar (operada, dos placas), osteoporosis, hipertensión, hipotiroidismo, colesterol alto, toma betabloqueador.', tarifa:60400, activo:true, drive:'1CbC-Zjqh7tM9cJU9xnm2Ti2BUNZ5R8Sx', anamnesisCompleta:`5-01-2026. Martha Ilce Tejada Arturo, 82 años, CC: 25266011. Contacto de emergencia: Margarita Tejada, Cel. 3209699427. La usuaria superó cáncer de colon hace varios años y actualmente no presenta ningún tipo de secuela que le impida realizar actividad física proveniente de esta enfermedad. La señora Ilce tuvo una caída, la cual le provocó fractura de algunas vértebras lumbares e inestabilidad en la columna a nivel torácico y lumbar. Por lo anterior fue operada y le implantaron dos placas con el fin de fijar y estabilizar la columna vertebral. Esto también tuvo que hacerse por el hecho de que la usuaria padece osteoporosis. Además de lo anterior, debe mencionarse que la señora Ilce presenta hipertensión, hipotiroidismo, problemas de metabolización del colesterol. Aunque no manifiesta tener afecciones cardiacas, consume un betabloqueador medicado.`},
-  {id:'c19', nombre:'Jineth Prieto', cc:'1.098.668.915', edad:'Pendiente', direccion:'Transversal 1 #58-55, Apto 703, Bogotá', telefono:'310 790 4040', diagnostico:'Entrena junto con su pareja Santiago Agreda (cliente aparte "c45", misma dirección) — sesión conjunta, cada uno con su propio registro de salud, pero la cuenta de cobro de ambos se hace a nombre de Jineth.', tarifa:60400, activo:true, drive:'1z5NCHjEISE-3Sxbdfhs-Ex0gHyDakfmS'}, // 29/07/2026: nombre corregido de "Jineth Santiago" a "Jineth Prieto" — Andersson corrigió el nombre real en la carpeta de Drive (Anamnesis/horario)
-  {id:'c20', nombre:'Jorge Forero', cc:'2.992.563', edad:72, direccion:'Calle 114A #47A-33, Barrio Alhambra, Bogotá', telefono:'310 862 7268', diagnostico:'Cáncer de próstata superado con braquiterapia (sin secuelas), párkinson diagnosticado hace ~2.5 años (objetivo principal: ralentizar efectos vía ejercicio), dolores lumbares intermitentes leves.', tarifa:60400, activo:true, drive:'1-TrBrNjTH_eGGMgjDjDlza_C2r9rhd4Q', anamnesisCompleta:`4-01-2026. Jorge Forero, edad 72 años, tuvo cáncer de próstata el cual superó completamente utilizando braquiterapia como tratamiento. Esto ocurrió hace varios años y hasta el momento no presenta secuelas ni restricciones para realizar actividad física. El usuario fue diagnosticado con párkinson hace aproximadamente dos años y medio, por lo cual su objetivo principal es ralentizar los efectos del párkinson por medio del ejercicio. Jorge tiene dolores intermitentes a nivel lumbar, nunca con tanta intensidad como para incapacitarlo o requerir tratamiento clínico, sin embargo, es un factor a considerar. El entrenamiento con Jorge debe centrarse en la fuerza, el equilibrio y algunos aspectos coordinativos. La parte aeróbica él debe realizarla de forma autónoma (cuenta con bicicleta estática, además manifiesta salir a trotar y en ocasiones tomar clases de baile). A enero del 2026, Jorge llevaba un año y 4 meses aproximadamente realizando entrenamiento de la fuerza y pilates con el profesor Daniel Toloza.`},
-  {id:'c21', nombre:'Leonardo Lopez', cc:'1.026.558.977', edad:'Pendiente', direccion:'Transversal 23 #95-46, Bogotá', telefono:'317 703 4165', diagnostico:'En creación — la pestaña de Anamnesis de su archivo contiene por error los datos de otro cliente; su diagnóstico propio no está documentado en Drive y debe confirmarse.', tarifa:50000, activo:false, drive:'1dVvTxaKSwo9LhXSzL0wVICPcH8Ekm63u'},
+  {id:'c18', nombre:'Ilce Tejada', cc:'25.266.011', edad:82, direccion:'Calle 78 #7-98, Apto 802, Edificio Alameda, Bogotá', telefono:'304 547 9708', diagnostico:'Cáncer de colon superado (sin secuelas), fractura de vértebras lumbares por caída con inestabilidad de columna torácica/lumbar (operada, dos placas), osteoporosis, hipertensión, hipotiroidismo, colesterol alto, toma betabloqueador.', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1CbC-Zjqh7tM9cJU9xnm2Ti2BUNZ5R8Sx', anamnesisCompleta:`5-01-2026. Martha Ilce Tejada Arturo, 82 años, CC: 25266011. Contacto de emergencia: Margarita Tejada, Cel. 3209699427. La usuaria superó cáncer de colon hace varios años y actualmente no presenta ningún tipo de secuela que le impida realizar actividad física proveniente de esta enfermedad. La señora Ilce tuvo una caída, la cual le provocó fractura de algunas vértebras lumbares e inestabilidad en la columna a nivel torácico y lumbar. Por lo anterior fue operada y le implantaron dos placas con el fin de fijar y estabilizar la columna vertebral. Esto también tuvo que hacerse por el hecho de que la usuaria padece osteoporosis. Además de lo anterior, debe mencionarse que la señora Ilce presenta hipertensión, hipotiroidismo, problemas de metabolización del colesterol. Aunque no manifiesta tener afecciones cardiacas, consume un betabloqueador medicado.`},
+  {id:'c19', nombre:'Jineth Prieto', cc:'1.098.668.915', edad:'Pendiente', direccion:'Transversal 1 #58-55, Apto 703, Bogotá', telefono:'310 790 4040', diagnostico:'Entrena junto con su pareja Santiago Agreda (cliente aparte "c45", misma dirección) — sesión conjunta, cada uno con su propio registro de salud y su propia cuenta de cobro (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos).', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1z5NCHjEISE-3Sxbdfhs-Ex0gHyDakfmS'}, // 29/07/2026: nombre corregido de "Jineth Santiago" a "Jineth Prieto" — Andersson corrigió el nombre real en la carpeta de Drive (Anamnesis/horario)
+  {id:'c20', nombre:'Jorge Forero', cc:'2.992.563', edad:72, direccion:'Calle 114A #47A-33, Barrio Alhambra, Bogotá', telefono:'310 862 7268', diagnostico:'Cáncer de próstata superado con braquiterapia (sin secuelas), párkinson diagnosticado hace ~2.5 años (objetivo principal: ralentizar efectos vía ejercicio), dolores lumbares intermitentes leves.', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1-TrBrNjTH_eGGMgjDjDlza_C2r9rhd4Q', anamnesisCompleta:`4-01-2026. Jorge Forero, edad 72 años, tuvo cáncer de próstata el cual superó completamente utilizando braquiterapia como tratamiento. Esto ocurrió hace varios años y hasta el momento no presenta secuelas ni restricciones para realizar actividad física. El usuario fue diagnosticado con párkinson hace aproximadamente dos años y medio, por lo cual su objetivo principal es ralentizar los efectos del párkinson por medio del ejercicio. Jorge tiene dolores intermitentes a nivel lumbar, nunca con tanta intensidad como para incapacitarlo o requerir tratamiento clínico, sin embargo, es un factor a considerar. El entrenamiento con Jorge debe centrarse en la fuerza, el equilibrio y algunos aspectos coordinativos. La parte aeróbica él debe realizarla de forma autónoma (cuenta con bicicleta estática, además manifiesta salir a trotar y en ocasiones tomar clases de baile). A enero del 2026, Jorge llevaba un año y 4 meses aproximadamente realizando entrenamiento de la fuerza y pilates con el profesor Daniel Toloza.`},
+  {id:'c21', nombre:'Leonardo Lopez', cc:'1.026.558.977', edad:'Pendiente', direccion:'Transversal 23 #95-46, Bogotá', telefono:'317 703 4165', diagnostico:'En creación — la pestaña de Anamnesis de su archivo contiene por error los datos de otro cliente; su diagnóstico propio no está documentado en Drive y debe confirmarse.', tarifa:50000, tarifaOnline:null, tarifaSemiPresencial:25000, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'1dVvTxaKSwo9LhXSzL0wVICPcH8Ekm63u'},
   // 27/07/2026: pedido explícito de Andersson — Jorge y Camila son dos clientes DISTINTOS (antes
   // vivían como un solo registro combinado), cada uno con su propio registro de salud por sesión
-  // (se agregan juntos como "sesión conjunta" al registrar — ver openAddRegistroModal), pero la
-  // cuenta de cobro de los dos se sigue haciendo a nombre de Jorge (campo `facturarBajoClienteId`
-  // en el registro de Camila, más abajo — ver clientesAgrupadosPara_). Comparten la misma carpeta de
-  // Drive de siempre (el Apps Script crea automáticamente una hoja de registro aparte por nombre
-  // dentro de esa misma carpeta, sin necesidad de una carpeta nueva).
-  {id:'c22', nombre:'Jorge Restrepo', cc:'Pendiente', edad:74, direccion:'Calle 95 #17-30, barrio Chico, Bogotá', telefono:'300 564 8740', diagnostico:'Diabetes e hipertensión controladas con medicamentos, ejercicio y dieta. Entrena junto con su esposa Camila Sarmiento (cliente aparte "c44", mismo domicilio) desde agosto 2021 — la cuenta de cobro de ambos se hace a nombre de Jorge.', tarifa:60400, activo:true, drive:'12f02r6DxEkJZSXmz_H20UPHcOkkdmgJW', anamnesisCompleta:`Jorge Restrepo, 74 años de edad, C.C 1.098.668.915. Jorge es un usuario con diabetes e hipertensión, ambas controladas con medicamentos, ejercicio y dieta saludable. Camila Sarmiento, 72 años, es una usuaria con osteoporosis tipo 1, de bajo impacto para la salud. Esta osteoporosis está controlada con medicamentos y ejercicio. Jorge y Camila son esposos y entrenan con nosotros desde agosto del 2021.
+  // (se agregan juntos como "sesión conjunta" al registrar — ver openAddRegistroModal). Comparten la
+  // misma carpeta de Drive de siempre (el Apps Script crea automáticamente una hoja de registro
+  // aparte por nombre dentro de esa misma carpeta, sin necesidad de una carpeta nueva).
+  // 30/07/2026: cada uno vuelve a tener su propia cuenta de cobro independiente — la sesión conjunta
+  // se cobra en cada una a la tarifa "Entrenamiento semipersonalizado" (ver MODALIDADES_SESION);
+  // ya no se fusiona todo a nombre de Jorge (se retiró `facturarBajoClienteId`).
+  {id:'c22', nombre:'Jorge Restrepo', cc:'Pendiente', edad:74, direccion:'Calle 95 #17-30, barrio Chico, Bogotá', telefono:'300 564 8740', diagnostico:'Diabetes e hipertensión controladas con medicamentos, ejercicio y dieta. Entrena junto con su esposa Camila Sarmiento (cliente aparte "c44", mismo domicilio) desde agosto 2021 — cada uno con su propia cuenta de cobro (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos).', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'12f02r6DxEkJZSXmz_H20UPHcOkkdmgJW', anamnesisCompleta:`Jorge Restrepo, 74 años de edad, C.C 1.098.668.915. Jorge es un usuario con diabetes e hipertensión, ambas controladas con medicamentos, ejercicio y dieta saludable. Camila Sarmiento, 72 años, es una usuaria con osteoporosis tipo 1, de bajo impacto para la salud. Esta osteoporosis está controlada con medicamentos y ejercicio. Jorge y Camila son esposos y entrenan con nosotros desde agosto del 2021.
 
 Su entrenamiento se basa principalmente en el desarrollo de la fuerza, siendo la metodología más empleada los entrenamientos tipo circuito. Les gusta también realizar ejercicios de tipo coordinativo. Para las sesiones de ellos se realiza un calentamiento principalmente de movilidad articular y ejercicios coordinativos. La parte central debe ser de ejercicios de fuerza tipo; como entrenan solo dos veces por semana, se emplea enfoque tipo full body y se realizan circuitos de 40 segundos principalmente y/o entre 12 y 20 repeticiones por ejercicio. En la parte final siempre se realizan estiramientos. Están muy adaptados a la estructura de clase, tomando la presión arterial al inicio y al final de la clase con sus propios equipos.
 
 Dirección: Calle 95 #17-30 Chico. Cel: Jorge 300 564 8740, Camila 3046293067.`},
-  {id:'c23', nombre:'Juanita Cuellar y Gloria Torres', cc:'Gloria: 21.070.062 · Juanita: 52.455.447', edad:'Pendiente', direccion:'Calle 95 #17-30, Apto 603, Bogotá', telefono:'Gloria 310 242 0180 / Juanita 300 212 5160', diagnostico:NO_ANAMNESIS, tarifa:55000, activo:false, drive:'1nfGkqSQBFjbX0dIPek_JVF-HgKMXx3vf'},
-  {id:'c24', nombre:'Ligia Rivas', cc:'24.475.831', edad:80, direccion:'Cra 72 #152B-89, apto 407 torre 1', telefono:'311 484 9459', diagnostico:'Insuficiencia cardiaca (~15 años), insuficiencia renal, aneurisma cerebral, hernia hiatal ~8cm, prediabetes, hipertensión, gastritis crónica, microinfarto silencioso, fractura tibia/peroné antigua. EPS Compensar. Contacto emergencia: Pilar 300 390 4360.', tarifa:60400, activo:true, drive:'1j4-1w-K502S0FAMMOLIEFxkQBHuLUDVD', anamnesisCompleta:`11-12-2025. Ligia Rivas, 80 años, CC 24475831. Dirección: Carrera 72 152B-89, apto 407 torre 1. Cel: 3114849459. EPS Compensar. Contacto de emergencia: Pilar 3003904360.
+  // 30/07/2026: Andersson confirmó que Juanita y Gloria fueron clientas en 2024 y ya no están con
+  // nosotros — por eso quedan como un solo cliente combinado sin separar (no es un caso activo hoy).
+  {id:'c23', nombre:'Juanita Cuellar y Gloria Torres', cc:'Gloria: 21.070.062 · Juanita: 52.455.447', edad:'Pendiente', direccion:'Calle 95 #17-30, Apto 603, Bogotá', telefono:'Gloria 310 242 0180 / Juanita 300 212 5160', diagnostico:NO_ANAMNESIS, tarifa:55000, tarifaOnline:null, tarifaSemiPresencial:27500, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'1nfGkqSQBFjbX0dIPek_JVF-HgKMXx3vf'},
+  {id:'c24', nombre:'Ligia Rivas', cc:'24.475.831', edad:80, direccion:'Cra 72 #152B-89, apto 407 torre 1', telefono:'311 484 9459', diagnostico:'Insuficiencia cardiaca (~15 años), insuficiencia renal, aneurisma cerebral, hernia hiatal ~8cm, prediabetes, hipertensión, gastritis crónica, microinfarto silencioso, fractura tibia/peroné antigua. EPS Compensar. Contacto emergencia: Pilar 300 390 4360.', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1j4-1w-K502S0FAMMOLIEFxkQBHuLUDVD', anamnesisCompleta:`11-12-2025. Ligia Rivas, 80 años, CC 24475831. Dirección: Carrera 72 152B-89, apto 407 torre 1. Cel: 3114849459. EPS Compensar. Contacto de emergencia: Pilar 3003904360.
 
 La señora Ligia presenta insuficiencia cardiaca diagnosticada hace aproximadamente 15 años, aunque no precisa el nivel exacto de clasificación de la insuficiencia; según su descripción, probablemente esta insuficiencia sea de tipo 1 o 2, ya que según ella el doctor nunca le ha restringido el tipo de actividad física que puede realizar y actualmente no presenta problemas en su estado de salud. Se encuentra medicada y estable. También presenta insuficiencia renal, la cual no representa un deterioro de su calidad de vida; no es una usuaria que requiera o haya requerido diálisis. Tampoco precisa el grado de su insuficiencia renal, pero se asume por su descripción que puede ser tipo 1, ya que en su caso el tratamiento consiste en dieta y hábitos saludables. Tiene un aneurisma cerebral sin compromiso, el cual fue detectado hace aprox. 8 años. Presenta una hernia hiatal de aprox. 8 cm. Es prediabética, hipertensa, tiene gastritis crónica y según su información tuvo un microinfarto silencioso el cual no dejó secuelas.
 
 A nivel músculo-esquelético tuvo fractura de tibia y peroné hace aprox. 30 años, por lo cual le pusieron implante de platinas con sus respectivos tornillos. La recuperación fue exitosa y no dejó secuelas. Por otro lado, a nivel toracolumbar presenta discopatías lumbares múltiples, espondilosis toracolumbar y artrosis facetaria lumbar, afectando todas las vértebras lumbares y la primera sacra. A nivel cervical presenta cambios espondiloartrósicos, osteocondrósicos y de osteopenia junto con probables discopatías degenerativas.
 
 Según la valoración por impedancia, tiene un nivel de masa muscular bajo, de apenas 25.2%, y un porcentaje de grasa corporal de 33.9%, de grasa visceral 7.`},
-  {id:'c25', nombre:'Lina Sanchez', cc:'1.022.962.667', edad:35, direccion:'Carrera 9B #75B-27 Sur, Bogotá', telefono:'321 421 9458', diagnostico:NO_ANAMNESIS, tarifa:60400, activo:false, drive:'17S7XHUbPA_R9QqiwZPNu5dFeyRODPQNn'},
-  {id:'c26', nombre:'Lucy Cardona', cc:'41.580.111', edad:72, direccion:'Calle 78 #9-58, Apto 1004, Edificio Los Nogales, Barrio El Nogal, Bogotá', telefono:'315 342 0663', diagnostico:'Artritis reumatoidea, lipoma con episodios de pérdida de fuerza/mareo/síncope (>1 año), osteoporosis, dislipidemia/colesterol alto.', tarifa:55800, activo:true, drive:'16e6PKBVbrD2l6WVONbRi1kup7sEucK0X', anamnesisCompleta:`Lucy Cardona tiene 72 años y su número de cédula es 41580111. EPS Aliansalud. En cuanto a su estado de salud, tiene diagnóstico de artritis reumatoidea y un pequeño lipoma que le generó dos episodios de pérdida de la fuerza y mareo profundo (hace más de un año), los cuales la llevaron a presentar síncopes y reposar en el suelo, pero sin pérdida de conciencia. Además tiene un diagnóstico de osteoporosis y dislipidemia con tendencia al colesterol alto. Lucy refiere que a su parecer, estas afecciones fueron consecuencia del refuerzo de vacuna del covid. Sus médicos le recomendaron empezar a realizar ejercicio para aumentar la fuerza y la masa muscular; entre las recomendaciones principales está el pilates, por lo menos de manera inicial.
+  {id:'c25', nombre:'Lina Sanchez', cc:'1.022.962.667', edad:35, direccion:'Carrera 9B #75B-27 Sur, Bogotá', telefono:'321 421 9458', diagnostico:NO_ANAMNESIS, tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:null, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'17S7XHUbPA_R9QqiwZPNu5dFeyRODPQNn'},
+  {id:'c26', nombre:'Lucy Cardona', cc:'41.580.111', edad:72, direccion:'Calle 78 #9-58, Apto 1004, Edificio Los Nogales, Barrio El Nogal, Bogotá', telefono:'315 342 0663', diagnostico:'Artritis reumatoidea, lipoma con episodios de pérdida de fuerza/mareo/síncope (>1 año), osteoporosis, dislipidemia/colesterol alto.', tarifa:55800, tarifaOnline:null, tarifaSemiPresencial:27900, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'16e6PKBVbrD2l6WVONbRi1kup7sEucK0X', anamnesisCompleta:`Lucy Cardona tiene 72 años y su número de cédula es 41580111. EPS Aliansalud. En cuanto a su estado de salud, tiene diagnóstico de artritis reumatoidea y un pequeño lipoma que le generó dos episodios de pérdida de la fuerza y mareo profundo (hace más de un año), los cuales la llevaron a presentar síncopes y reposar en el suelo, pero sin pérdida de conciencia. Además tiene un diagnóstico de osteoporosis y dislipidemia con tendencia al colesterol alto. Lucy refiere que a su parecer, estas afecciones fueron consecuencia del refuerzo de vacuna del covid. Sus médicos le recomendaron empezar a realizar ejercicio para aumentar la fuerza y la masa muscular; entre las recomendaciones principales está el pilates, por lo menos de manera inicial.
 
 A nivel clínico se le practicaron diversos exámenes, los cuales se comparten a continuación, recordando que son de uso exclusivo para los entrenadores. Aunque Lucy cuenta con autorización médica para empezar un programa de ejercicios, se recomienda no realizar ejercicios de alta intensidad en cuanto a su activación aeróbica, y en caso de requerir hacerlo, buscar no exceder las 104 ppm, las cuales en su caso representan un 70% de su frecuencia cardiaca máxima teórica. Además, atendiendo a las recomendaciones médicas y a su necesidad de aumentar masa muscular, se pide a los entrenadores enfocar el plan de entrenamiento en ciclos de fuerza, tomando aproximadamente 8 semanas para el primer ciclo, en el cual se realizarán ejercicios que permitan 20 reps por 3 o 4 series, priorizando grandes grupos musculares.
 
 En la valoración inicial, realizada por el profesional en Actividad Física, se realizó impedancia, dinamometría y algunos test de fuerza abdominal. No está de más mencionar que la artritis ha afectado notoriamente sus manos, aunque mantiene su capacidad prensil y de movimiento.`},
-  {id:'c27', nombre:'Luis Jorge Mendoza', cc:'19.153.320', edad:74, direccion:'Cra 16 #127B-43, Torre 6, Apto 902, Bogotá', telefono:'313 815 6510', diagnostico:'Epicondilitis brazo derecho, dolor rodilla izquierda (cirugía de menisco antigua), prediabético, hipertenso, hipotiroidismo, colesterol alto, hernias discales, hernia inguinal operada. EPS Sanitas.', tarifa:60400, activo:true, drive:'1TGnJHfGX500Qf_6LjHrvOhMg7Fbl-9vy'},
-  {id:'c28', nombre:'Maria Lucia Acero', cc:'35.518.141', edad:63, direccion:'Calle 114A #47A-33, Bogotá', telefono:'310 862 7268', diagnostico:'Toma cardiomax (colesterol), intervención de rodilla derecha; practica pilates 3x/semana. Cuidado con dolores lumbo-dorsales, sobrecarga cervical, dolor de muñecas. EPS Aliansalud. Contacto emergencia: Luis Enrique Forero Acero 311 592 6555.', tarifa:60400, activo:true, drive:'1wwdCSdhV2V7J-4ZVzZsLPX4o_OgTTW4_', anamnesisCompleta:`6-05-2026. María Lucía Acero, nació en enero de 1963, edad 63 años. Cc 35518141, Dirección Calle 114A N 47A-33, celular 3108627268, EPS Aliansalud. Nombre y número de teléfono de las personas que puedan asistir en caso de eventualidad y/o del cuidador: Luis Enrique Forero Acero 3115926555.
+  {id:'c27', nombre:'Luis Jorge Mendoza', cc:'19.153.320', edad:74, direccion:'Cra 16 #127B-43, Torre 6, Apto 902, Bogotá', telefono:'313 815 6510', diagnostico:'Epicondilitis brazo derecho, dolor rodilla izquierda (cirugía de menisco antigua), prediabético, hipertenso, hipotiroidismo, colesterol alto, hernias discales, hernia inguinal operada. EPS Sanitas.', tarifa:60400, tarifaOnline:55200, tarifaSemiPresencial:30200, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'1TGnJHfGX500Qf_6LjHrvOhMg7Fbl-9vy'},
+  {id:'c28', nombre:'Maria Lucia Acero', cc:'35.518.141', edad:63, direccion:'Calle 114A #47A-33, Bogotá', telefono:'310 862 7268', diagnostico:'Toma cardiomax (colesterol), intervención de rodilla derecha; practica pilates 3x/semana. Cuidado con dolores lumbo-dorsales, sobrecarga cervical, dolor de muñecas. EPS Aliansalud. Contacto emergencia: Luis Enrique Forero Acero 311 592 6555.', tarifa:60400, tarifaOnline:55200, tarifaSemiPresencial:30200, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'1wwdCSdhV2V7J-4ZVzZsLPX4o_OgTTW4_', anamnesisCompleta:`6-05-2026. María Lucía Acero, nació en enero de 1963, edad 63 años. Cc 35518141, Dirección Calle 114A N 47A-33, celular 3108627268, EPS Aliansalud. Nombre y número de teléfono de las personas que puedan asistir en caso de eventualidad y/o del cuidador: Luis Enrique Forero Acero 3115926555.
 
 Aunque la usuaria manifiesta no tener enfermedades, refiere tomar cardiomax, el cual es un medicamento para reducir los niveles de colesterol. La usuaria refiere que le realizaron una intervención en la rodilla derecha. En cuanto al entrenamiento, Lucía realiza tres sesiones de entrenamiento semanales usando como técnica principal el pilates, distribuidos de esta forma: lunes cadena muscular anterior-posterior; miércoles cadena muscular lateral y fuerza rotacional; viernes cadena muscular anterior y posterior. El día viernes puede alternarse para realizar entrenamiento tipo full body. Cuenta con variedad de implementos, entre pesas, balón de pilates, bandas y disco de estabilidad. Tener presente dolores lumbo-dorsales (usar realces si son necesarios), sobrecarga cervical y dolor en las muñecas.`},
-  {id:'c29', nombre:'Maria Clara Borda', cc:'41.639.226', edad:'Pendiente', direccion:'Carrera 76 #182-02, Bogotá', telefono:'315 393 2519', diagnostico:NO_ANAMNESIS, tarifa:60400, activo:true, drive:'1dG2SsCxadq0yU_fiJqaoS0gIKMZ1CIsF'},
-  {id:'c30', nombre:'Maria Lourdes', cc:'51.607.509', edad:64, direccion:'Calle 119A #57-61, Apto 1205, Bogotá', telefono:'315 341 4006', diagnostico:'Artroscopia de rodilla izquierda, histerectomía, hipertensión; sin diagnóstico clínico formal de la rodilla (evitar flexión profunda y cargas altas).', tarifa:57200, activo:true, drive:'15cm8xg2QKj7QhZwNbahH_bOFDoUviHof', anamnesisCompleta:`María Lourdes Forero, 64 años. Le realizaron artroscopia de rodilla izquierda e histerectomía. Tiene hipertensión. A la fecha del 4 de octubre del 2024, María Lourdes no ha entregado ningún diagnóstico clínico o algún tipo de examen que permita profundizar en el tratamiento de su rodilla izquierda. Dicho lo anterior, se recomienda no realizar flexiones profundas de rodilla, ni emplear cargas altas en miembros inferiores, tampoco realizar ejercicios de impacto. Por lo demás, María se encuentra en condiciones de salud favorables, realizando un programa de entrenamiento de dos días de ejercicio de fuerza para miembros superiores e inferiores y un día de entrenamiento del core, principalmente empleando pilates. Su proceso inició en julio del 2023 con sesiones de pilates y en agosto del 2024 se implementaron los nuevos enfoques.
+  {id:'c29', nombre:'Maria Clara Borda', cc:'41.639.226', edad:'Pendiente', direccion:'Carrera 76 #182-02, Bogotá', telefono:'315 393 2519', diagnostico:NO_ANAMNESIS, tarifa:60400, tarifaOnline:55200, tarifaSemiPresencial:30200, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'1dG2SsCxadq0yU_fiJqaoS0gIKMZ1CIsF'},
+  {id:'c30', nombre:'Maria Lourdes', cc:'51.607.509', edad:64, direccion:'Calle 119A #57-61, Apto 1205, Bogotá', telefono:'315 341 4006', diagnostico:'Artroscopia de rodilla izquierda, histerectomía, hipertensión; sin diagnóstico clínico formal de la rodilla (evitar flexión profunda y cargas altas).', tarifa:57200, tarifaOnline:null, tarifaSemiPresencial:28600, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'15cm8xg2QKj7QhZwNbahH_bOFDoUviHof', anamnesisCompleta:`María Lourdes Forero, 64 años. Le realizaron artroscopia de rodilla izquierda e histerectomía. Tiene hipertensión. A la fecha del 4 de octubre del 2024, María Lourdes no ha entregado ningún diagnóstico clínico o algún tipo de examen que permita profundizar en el tratamiento de su rodilla izquierda. Dicho lo anterior, se recomienda no realizar flexiones profundas de rodilla, ni emplear cargas altas en miembros inferiores, tampoco realizar ejercicios de impacto. Por lo demás, María se encuentra en condiciones de salud favorables, realizando un programa de entrenamiento de dos días de ejercicio de fuerza para miembros superiores e inferiores y un día de entrenamiento del core, principalmente empleando pilates. Su proceso inició en julio del 2023 con sesiones de pilates y en agosto del 2024 se implementaron los nuevos enfoques.
 
 (Nota: en su pestaña de Anamnesis de Drive esta nota clínica está mezclada con una tabla de bioimpedancia/dinamometría por fecha y con un plan de alimentación alto en proteínas — ambos se conservan en el Excel de Drive; aquí se muestra el texto clínico completo tal como aparece en la pestaña.)`},
-  {id:'c31', nombre:'Maria del Pilar Sanchez Garcia', cc:'Pendiente', edad:'Pendiente', direccion:'Carrera 13A #113-91, Apto 504, Bogotá', telefono:'324 345 4588', diagnostico:NO_ANAMNESIS, tarifa:50000, activo:false, drive:'1JesnLw6UVIgP0-u8xhmOUE_ipgKym_IZ'},
-  {id:'c32', nombre:'Maria Matilde', cc:'51.651.440', edad:'Pendiente', direccion:'Carrera 58 #138-63, Edificio Argenta, Torre 1, Apto 1503, Bogotá', telefono:'310 210 2350', diagnostico:NO_ANAMNESIS, tarifa:60400, activo:true, drive:'1MF3SOU0a4WW21i1rOQ0lM6svvM6biA6m'},
-  {id:'c33', nombre:'Maria Teresa', cc:'39.685.668', edad:63, direccion:'Pendiente', telefono:'Pendiente', diagnostico:'Registro de Anamnesis casi vacío: lesión de espalda, lesión de hombro, reemplazo de cadera (sin más detalle en el archivo).', tarifa:60400, activo:true, drive:'1mlA-SFxOKS4mIBw4CMkWi7CNpbxYabam', anamnesisCompleta:`Edad: 63 (nació el 26 de marzo de 1963). Lesión de espalda. Lesión de hombro. Reemplazo de cadera. Este es el contenido completo de la pestaña Anamnesis en su Excel de Drive — está casi vacía, sin más detalle registrado.`},
-  {id:'c34', nombre:'Marisol y Leo', cc:'Marisol: 52.084.105 · Leo: CE 2.032.156', edad:'Pendiente', direccion:'Carrera 1B #54-45, Apto 402, Bogotá', telefono:'Marisol 316 342 5654 / Leo 315 001 4312', diagnostico:NO_ANAMNESIS, tarifa:55700, activo:true, drive:'1ssSuDsmdhdDsMJxskf4l80jbv4XYWLxa'},
-  {id:'c35', nombre:'Marisol Dalmazzo', cc:'CE 169.367', edad:74, direccion:'Pendiente', telefono:'Pendiente', diagnostico:'Cáncer con compromiso óseo (clavícula, columna, húmero) e hígado, quimioterapia trisemanal, hipotensión ortostática severa, fractura de fémur derecho (2016, con implante de platino). Crisis grave por infección urinaria (dic. 2025, cuidados paliativos, en recuperación).', tarifa:58000, activo:true, drive:'1dyaEepezKs-tNF39tURcXEqRrpxc8fDu', anamnesisCompleta:`Marisol Beatriz Dalmazzo Peillard tiene 74 años (al 2023), nació el 2-08-1949. Usuaria con cáncer. Tipo y número de identificación CE 169367. Al 2023 recibe quimioterapia cada 3 semanas. Como resultado del examen de mesa basculante se encuentran bajas repentinas y extremas de presión, razón por la cual le autorizan terapias para el fortalecimiento del sistema cardiovascular. El cáncer ha comprometido diferentes estructuras óseas como la clavícula, la columna y el húmero, y en cuanto a órganos internos, el hígado. Consume creatina. En el 2016 presentó fractura en el fémur derecho, por lo cual fue operada y le pusieron implante de platino.
+  {id:'c31', nombre:'Maria del Pilar Sanchez Garcia', cc:'Pendiente', edad:'Pendiente', direccion:'Carrera 13A #113-91, Apto 504, Bogotá', telefono:'324 345 4588', diagnostico:NO_ANAMNESIS, tarifa:50000, tarifaOnline:null, tarifaSemiPresencial:25000, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'1JesnLw6UVIgP0-u8xhmOUE_ipgKym_IZ'},
+  {id:'c32', nombre:'Maria Matilde', cc:'51.651.440', edad:'Pendiente', direccion:'Carrera 58 #138-63, Edificio Argenta, Torre 1, Apto 1503, Bogotá', telefono:'310 210 2350', diagnostico:NO_ANAMNESIS, tarifa:60400, tarifaOnline:57800, tarifaSemiPresencial:30200, tarifaSemiOnline:28900, tarifaMasaje:130000, activo:true, drive:'1MF3SOU0a4WW21i1rOQ0lM6svvM6biA6m'},
+  {id:'c33', nombre:'Maria Teresa', cc:'39.685.668', edad:63, direccion:'Pendiente', telefono:'Pendiente', diagnostico:'Registro de Anamnesis casi vacío: lesión de espalda, lesión de hombro, reemplazo de cadera (sin más detalle en el archivo).', tarifa:60400, tarifaOnline:55200, tarifaSemiPresencial:30200, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'1mlA-SFxOKS4mIBw4CMkWi7CNpbxYabam', anamnesisCompleta:`Edad: 63 (nació el 26 de marzo de 1963). Lesión de espalda. Lesión de hombro. Reemplazo de cadera. Este es el contenido completo de la pestaña Anamnesis en su Excel de Drive — está casi vacía, sin más detalle registrado.`},
+  // 30/07/2026: Andersson confirmó que Marisol (mamá de Leo) y Leo actualmente NO están tomando
+  // sesiones con nosotros — igual que Juanita Cuéllar y Gloria Torres (c23, ver nota junto a ese
+  // registro), se dejan como un solo cliente combinado sin separar, ya que no es un caso activo hoy.
+  {id:'c34', nombre:'Marisol y Leo', cc:'Marisol: 52.084.105 · Leo: CE 2.032.156', edad:'Pendiente', direccion:'Carrera 1B #54-45, Apto 402, Bogotá', telefono:'Marisol 316 342 5654 / Leo 315 001 4312', diagnostico:NO_ANAMNESIS, tarifa:55700, tarifaOnline:null, tarifaSemiPresencial:27850, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'1ssSuDsmdhdDsMJxskf4l80jbv4XYWLxa'},
+  {id:'c35', nombre:'Marisol Dalmazzo', cc:'CE 169.367', edad:74, direccion:'Pendiente', telefono:'Pendiente', diagnostico:'Cáncer con compromiso óseo (clavícula, columna, húmero) e hígado, quimioterapia trisemanal, hipotensión ortostática severa, fractura de fémur derecho (2016, con implante de platino). Crisis grave por infección urinaria (dic. 2025, cuidados paliativos, en recuperación).', tarifa:58000, tarifaOnline:55200, tarifaSemiPresencial:29000, tarifaSemiOnline:27600, tarifaMasaje:130000, activo:true, drive:'1dyaEepezKs-tNF39tURcXEqRrpxc8fDu', anamnesisCompleta:`Marisol Beatriz Dalmazzo Peillard tiene 74 años (al 2023), nació el 2-08-1949. Usuaria con cáncer. Tipo y número de identificación CE 169367. Al 2023 recibe quimioterapia cada 3 semanas. Como resultado del examen de mesa basculante se encuentran bajas repentinas y extremas de presión, razón por la cual le autorizan terapias para el fortalecimiento del sistema cardiovascular. El cáncer ha comprometido diferentes estructuras óseas como la clavícula, la columna y el húmero, y en cuanto a órganos internos, el hígado. Consume creatina. En el 2016 presentó fractura en el fémur derecho, por lo cual fue operada y le pusieron implante de platino.
 
 15-01-2026. Durante diciembre del 2025 Marisol tuvo una grave crisis de salud, producto de una infección urinaria que la llevó incluso a tener cuidados paliativos en casa. En determinado momento sus médicos creyeron que no sobreviviría. No obstante, repentinamente Marisol empezó a mostrar signos de mejoría e incluso ya fue retirada la sonda vesical.
 
 En esta etapa que está atravesando Marisol, su entrenamiento debe basarse en recuperar su vitalidad, por lo cual es importantísimo asumir un enfoque integral. Por un lado, debe hacerse entrenamiento de fuerza priorizando grandes grupos musculares como cuádriceps, isquiosurales, dorsales y pectorales. Por otro lado, debe estar presente en todo entrenamiento el trabajo del equilibrio, tanto para recuperar su autonomía como para reducir la probabilidad de caída. Es de vital importancia comprender que, en un usuario con cáncer, muchas veces los principios del entrenamiento no pueden aplicarse con la misma facilidad que en un usuario convencional, más aún entendiendo que en este momento Marisol es una usuaria que está sobreviviendo a una fuerte crisis. Por lo anterior es especialmente importante tener una lectura e interacción constante con el usuario para poder dosificar los tiempos de recuperación en relación con la intensidad. Se recomienda trabajar series de fuerza con intensidades bajas alternando con ejercicios de equilibrio. También se pueden alternar los ejercicios de fuerza con ejercicios que impliquen tareas coordinativas en posición sedente, por ejemplo, lanzar y atrapar una pelota. También puede ser muy útil aplicar el principio de doble tarea, es decir, integración cognitivo-motora en los ejercicios que sea pertinente. En cuanto a la parte de movilidad, se recomienda no realizar estiramiento de cuádriceps.`},
-  {id:'c36', nombre:'Natalia Schon', cc:'52.695.196', edad:'Pendiente', direccion:'Carrera 5 #26B-39, Apto 308, Bogotá', telefono:'320 279 4232', diagnostico:NO_ANAMNESIS, tarifa:55000, activo:false, drive:'1_vNXf99FjEGYhcYlxIVV1ilc8HB7GkRi'},
-  {id:'c37', nombre:'Patricia Esperanza Valencia', cc:'38.235.715', edad:70, direccion:'Cra 16 #127B-43, Torre 6, Apto 902, Bogotá', telefono:'315 348 1585', diagnostico:'Hipertensión, colesterol alto, ablación cardiaca por arritmia (~15 años, exitosa, sin restricción), caída con compromiso de brazo derecho. Contacto emergencia: Luis Jorge Mendoza 313 815 6510.', tarifa:60400, activo:true, drive:'19_M6xlo1Svd7oiqgBhlbxMkP4Etwd2t-', anamnesisCompleta:`21-05-2026. Patricia Valencia, 70 años, CC. 38235715, Cra 16 #127B-43 Torre 6 Apto 902, celular 3153481585, contacto emergencia Luis Jorge Mendoza 3138156510. Usuaria con hipertensión y colesterol alto. Hace aproximadamente 15 años le practicaron una ablación cardiaca para corregir una arritmia. El procedimiento fue exitoso y no generó ninguna restricción para realizar actividad física.
+  {id:'c36', nombre:'Natalia Schon', cc:'52.695.196', edad:'Pendiente', direccion:'Carrera 5 #26B-39, Apto 308, Bogotá', telefono:'320 279 4232', diagnostico:NO_ANAMNESIS, tarifa:55000, tarifaOnline:50000, tarifaSemiPresencial:27500, tarifaSemiOnline:25000, tarifaMasaje:130000, activo:false, drive:'1_vNXf99FjEGYhcYlxIVV1ilc8HB7GkRi'},
+  {id:'c37', nombre:'Patricia Esperanza Valencia', cc:'38.235.715', edad:70, direccion:'Cra 16 #127B-43, Torre 6, Apto 902, Bogotá', telefono:'315 348 1585', diagnostico:'Hipertensión, colesterol alto, ablación cardiaca por arritmia (~15 años, exitosa, sin restricción), caída con compromiso de brazo derecho. Contacto emergencia: Luis Jorge Mendoza 313 815 6510.', tarifa:60400, tarifaOnline:55177, tarifaSemiPresencial:30200, tarifaSemiOnline:27589, tarifaMasaje:130000, activo:true, drive:'19_M6xlo1Svd7oiqgBhlbxMkP4Etwd2t-', anamnesisCompleta:`21-05-2026. Patricia Valencia, 70 años, CC. 38235715, Cra 16 #127B-43 Torre 6 Apto 902, celular 3153481585, contacto emergencia Luis Jorge Mendoza 3138156510. Usuaria con hipertensión y colesterol alto. Hace aproximadamente 15 años le practicaron una ablación cardiaca para corregir una arritmia. El procedimiento fue exitoso y no generó ninguna restricción para realizar actividad física.
 
 A nivel osteomuscular, la usuaria sufrió una caída que comprometió el brazo derecho, específicamente las áreas comprendidas entre el bíceps, el tríceps y el hombro. La caída se produjo hace cuatro años, y según refiere la usuaria, aunque el médico recomendó operarla, ella decidió no hacerlo. Por lo anterior, durante la valoración se le recomendó practicarse una resonancia o acudir con el ortopedista para saber en qué estado se encuentra actualmente el área afectada. Se le realizaron unas pruebas de movilidad y fuerza en el brazo, donde se observó que el mayor compromiso se encuentra en el hombro, principalmente en su porción anterior y lateral, con compromiso notorio de la fuerza y presentando una gran dificultad para hacer elevaciones del hombro, tanto frontales como laterales. También se le realizaron test de fuerza en miembros inferiores y abdomen.
 
@@ -638,29 +644,28 @@ La usuaria decide empezar un plan de ejercicios de fuerza por sugerencia de su g
 Según los datos obtenidos por medio de anamnesis, test de evaluación física, bioimpedancia y dinamometría, se sugiere hacer entrenamiento de fuerza, realizando énfasis en el fortalecimiento de la espalda y el core para prevenir el dolor de espalda y el aumento de la escoliosis y/u otro tipo de trastornos. Respecto a los brazos, aunque el derecho presenta gran afectación, también se observó debilidad en el brazo izquierdo, por lo cual, para el entrenamiento de fuerza en brazos, se sugiere inicialmente utilizar solo bandas elásticas de baja resistencia y mezclar ejercicios isotónicos en series de 20 repeticiones con ejercicios isométricos; a partir del segundo mes podrán probarse tanto bandas más resistentes como pesos bajos. Respecto a las piernas se puede trabajar con más libertad, se recomiendan series de 20 repeticiones.
 
 Entendiendo que la usuaria entrenará solo dos días, estos seguidos, se sugiere entrenar así: día uno, fortalecimiento de espalda tanto lumbar como dorsal, y entrenamiento del core; día dos, enfatizar entrenamiento de miembros superiores e inferiores, pero añadir aunque sea un ejercicio de fortalecimiento de espalda. El día uno pueden implementarse ejercicios de pilates; el día dos puede estar dado más al entrenamiento tradicional.`},
-  {id:'c38', nombre:'Patricia Vargas', cc:'51.630.982', edad:'Pendiente', direccion:'Carrera 3 #9-36, Bogotá', telefono:'310 264 4925', diagnostico:NO_ANAMNESIS, tarifa:55000, activo:false, drive:'1t8MCr5Ayf6PByhQ1rSbhkUfMmzI1_ukB', anamnesisCompleta:`Consumir 1,6 gramos de proteína por kilogramo de peso, es decir que para el momento de la valoración debería consumir 86 gramos de proteína diaria. Durante mes y medio, incrementar las cargas de entrenamiento, realizando ejercicios que impliquen series de 12 repeticiones seguidas, 4 veces por grupo muscular. Luego del mes y medio, incrementar las cargas buscando realizar series entre 8 o 10 repeticiones. Todo lo anterior está sujeto a no presentar dolores musculares significativos que puedan ocasionar lesiones.`},
-  {id:'c39', nombre:'Ricardo Castillo', cc:'19.370.251', edad:69, direccion:'Calle 24A #59-59, Int 1, Apto 1004, Teusaquillo, Bogotá', telefono:'316 617 8921', diagnostico:'Hipertensión reciente, colesterol LDL alto, hígado graso leve, prediabetes, contracturas en gastrocnemios/isquiosurales.', tarifa:55000, activo:false, drive:'1wNl4Cw37yVlm12NwsQSR10cAUkaS1zPU', anamnesisCompleta:`Usuario diagnosticado recientemente con hipertensión. Presenta niveles altos de colesterol LDL, refiere diagnóstico de hígado graso leve, y prediabetes. El usuario presenta algunas contracturas en los gastrocnemios y los isquiosurales.`},
-  {id:'c40', nombre:'Ricardo Sarmiento', cc:'19.363.207', edad:64, direccion:'Calle 119A #51-67, Apto 1205, Bogotá', telefono:'315 332 9877', diagnostico:'Sobrepeso, hipertensión, estenosis, dolor lumbar con irradiación a glúteos/miembros inferiores, abombamientos/protrusiones discales L3-L4, L4-L5, L5-S1 (dx. ago. 2022).', tarifa:59225, activo:true, drive:'1GCbd1_Wd_p3EY80HHGR6QX_TLcIFfzHn', anamnesisCompleta:`Usuario con sobrepeso, hipertensión y estenosis, quien decide empezar a entrenar principalmente para disminuir el dolor lumbar, con irradiación en los glúteos y extremidades inferiores. En agosto del 2022 le diagnostican abombamientos y protrusiones discales en las alturas L3-L4, L4-L5, L5-S1.`},
-  {id:'c41', nombre:'Sandra Liliana', cc:'52.052.660', edad:'Pendiente', direccion:'Carrera 21 #188-33, Casa 3, Sector 5, Maranta, Bogotá', telefono:'310 803 6794', diagnostico:'En creación — la pestaña "Anamnesis" de su archivo contiene por error el diagnóstico de otra clienta; su diagnóstico propio no está documentado en Drive y debe confirmarse.', tarifa:57500, activo:true, drive:'1WQIMh_0fnmXNHD9F9R5s98eblhpITowA'},
-  {id:'c42', nombre:'Susan Suarez', cc:'52.710.610', edad:46, direccion:'Carrera 59A #134-15, Bogotá', telefono:'312 379 3883', diagnostico:'Retrolistesis L5 sobre L1, escoliosis lumbar izquierda vértice L4, rectificación de lordosis lumbar, dolor de hombro izquierdo, bradicardia e hipotensión leves. Contacto emergencia: Carlos Quintero 350 504 5694.', tarifa:57800, activo:true, drive:'1md_yjz8ELGuLsC1rZ-wYB9H5gsanAumi', anamnesisCompleta:`Susan Suárez nació en 1980 y tiene, al 2025, 46 años. CC: 52.710.610. En caso de eventualidad puede comunicarse con Carlos Quintero, 3505045694. A nivel músculo-esquelético, Susan presenta retrolistesis de L5 sobre L1 y escoliosis lumbar izquierda con vértice en L4, además de rectificación de la lordosis lumbar. Refiere dolor en el hombro izquierdo. A nivel cardiovascular refiere tener bradicardia e hipotensión leves, sin ninguna restricción médica respecto al ejercicio.`},
+  {id:'c38', nombre:'Patricia Vargas', cc:'51.630.982', edad:'Pendiente', direccion:'Carrera 3 #9-36, Bogotá', telefono:'310 264 4925', diagnostico:NO_ANAMNESIS, tarifa:55000, tarifaOnline:null, tarifaSemiPresencial:27500, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'1t8MCr5Ayf6PByhQ1rSbhkUfMmzI1_ukB', anamnesisCompleta:`Consumir 1,6 gramos de proteína por kilogramo de peso, es decir que para el momento de la valoración debería consumir 86 gramos de proteína diaria. Durante mes y medio, incrementar las cargas de entrenamiento, realizando ejercicios que impliquen series de 12 repeticiones seguidas, 4 veces por grupo muscular. Luego del mes y medio, incrementar las cargas buscando realizar series entre 8 o 10 repeticiones. Todo lo anterior está sujeto a no presentar dolores musculares significativos que puedan ocasionar lesiones.`},
+  {id:'c39', nombre:'Ricardo Castillo', cc:'19.370.251', edad:69, direccion:'Calle 24A #59-59, Int 1, Apto 1004, Teusaquillo, Bogotá', telefono:'316 617 8921', diagnostico:'Hipertensión reciente, colesterol LDL alto, hígado graso leve, prediabetes, contracturas en gastrocnemios/isquiosurales.', tarifa:55000, tarifaOnline:null, tarifaSemiPresencial:27500, tarifaSemiOnline:null, tarifaMasaje:130000, activo:false, drive:'1wNl4Cw37yVlm12NwsQSR10cAUkaS1zPU', anamnesisCompleta:`Usuario diagnosticado recientemente con hipertensión. Presenta niveles altos de colesterol LDL, refiere diagnóstico de hígado graso leve, y prediabetes. El usuario presenta algunas contracturas en los gastrocnemios y los isquiosurales.`},
+  {id:'c40', nombre:'Ricardo Sarmiento', cc:'19.363.207', edad:64, direccion:'Calle 119A #51-67, Apto 1205, Bogotá', telefono:'315 332 9877', diagnostico:'Sobrepeso, hipertensión, estenosis, dolor lumbar con irradiación a glúteos/miembros inferiores, abombamientos/protrusiones discales L3-L4, L4-L5, L5-S1 (dx. ago. 2022).', tarifa:59225, tarifaOnline:null, tarifaSemiPresencial:29613, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1GCbd1_Wd_p3EY80HHGR6QX_TLcIFfzHn', anamnesisCompleta:`Usuario con sobrepeso, hipertensión y estenosis, quien decide empezar a entrenar principalmente para disminuir el dolor lumbar, con irradiación en los glúteos y extremidades inferiores. En agosto del 2022 le diagnostican abombamientos y protrusiones discales en las alturas L3-L4, L4-L5, L5-S1.`},
+  {id:'c41', nombre:'Sandra Liliana', cc:'52.052.660', edad:'Pendiente', direccion:'Carrera 21 #188-33, Casa 3, Sector 5, Maranta, Bogotá', telefono:'310 803 6794', diagnostico:'En creación — la pestaña "Anamnesis" de su archivo contiene por error el diagnóstico de otra clienta; su diagnóstico propio no está documentado en Drive y debe confirmarse.', tarifa:57500, tarifaOnline:null, tarifaSemiPresencial:28750, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1WQIMh_0fnmXNHD9F9R5s98eblhpITowA'},
+  {id:'c42', nombre:'Susan Suarez', cc:'52.710.610', edad:46, direccion:'Carrera 59A #134-15, Bogotá', telefono:'312 379 3883', diagnostico:'Retrolistesis L5 sobre L1, escoliosis lumbar izquierda vértice L4, rectificación de lordosis lumbar, dolor de hombro izquierdo, bradicardia e hipotensión leves. Contacto emergencia: Carlos Quintero 350 504 5694.', tarifa:57800, tarifaOnline:null, tarifaSemiPresencial:28900, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1md_yjz8ELGuLsC1rZ-wYB9H5gsanAumi', anamnesisCompleta:`Susan Suárez nació en 1980 y tiene, al 2025, 46 años. CC: 52.710.610. En caso de eventualidad puede comunicarse con Carlos Quintero, 3505045694. A nivel músculo-esquelético, Susan presenta retrolistesis de L5 sobre L1 y escoliosis lumbar izquierda con vértice en L4, además de rectificación de la lordosis lumbar. Refiere dolor en el hombro izquierdo. A nivel cardiovascular refiere tener bradicardia e hipotensión leves, sin ninguna restricción médica respecto al ejercicio.`},
   // 27/07/2026: pedido explícito de Andersson — Sebastian es un paciente con autismo, la clase es
   // para él (así que sus registros de sesión/salud siguen siendo los de él), pero la cuenta de
   // cobro se hace a Victoria Sur, su mamá/acudiente — se agrega `facturarA` con el nombre/cédula
   // que debe imprimirse en la cuenta de cobro en vez de los de Sebastian (ver computeInvoice). CC de
   // Victoria pendiente de confirmar con Andersson — queda "Pendiente" hasta que la envíe.
-  {id:'c43', nombre:'Sebastian Garay', cc:'41.938.129', edad:'Pendiente', direccion:'Carrera 22 #118-54, Apto 503, Bogotá', telefono:'301 613 9263', diagnostico:'En creación — la pestaña de Anamnesis de su archivo contiene por error el texto de otra clienta; su diagnóstico propio no está documentado en Drive y debe confirmarse. Nota (confirmado 22/07/2026): el cliente real es Sebastián Garay; Victoria Sur es su acudiente/mamá — así lo confirma el nombre de su carpeta en Drive ("Victoria Sur mama de sebastian garay") y la lista de precios más reciente ("Victoria Sur es Sebastian Garay"). El horario de Drive lo agenda bajo el nombre "Sebastian Garay".', tarifa:60400, activo:true, drive:'1dDF63CDGEPlnayIvPxHemEuWiqkRORbq', facturarA:{nombre:'Victoria Sur', cc:'Pendiente'}},
+  {id:'c43', nombre:'Sebastian Garay', cc:'41.938.129', edad:'Pendiente', direccion:'Carrera 22 #118-54, Apto 503, Bogotá', telefono:'301 613 9263', diagnostico:'En creación — la pestaña de Anamnesis de su archivo contiene por error el texto de otra clienta; su diagnóstico propio no está documentado en Drive y debe confirmarse. Nota (confirmado 22/07/2026): el cliente real es Sebastián Garay; Victoria Sur es su acudiente/mamá — así lo confirma el nombre de su carpeta en Drive ("Victoria Sur mama de sebastian garay") y la lista de precios más reciente ("Victoria Sur es Sebastian Garay"). El horario de Drive lo agenda bajo el nombre "Sebastian Garay".', tarifa:60400, tarifaOnline:55177, tarifaSemiPresencial:30200, tarifaSemiOnline:27589, tarifaMasaje:130000, activo:true, drive:'1dDF63CDGEPlnayIvPxHemEuWiqkRORbq', facturarA:{nombre:'Victoria Sur', cc:'Pendiente'}},
   // 27/07/2026: cliente nuevo — Camila Sarmiento, esposa de Jorge Restrepo (c22), separada del
   // registro combinado que existía antes (ver nota junto a c22). Comparte la carpeta de Drive de
   // Jorge (el Apps Script crea sola una hoja de registro aparte "Registro_Camila Sarmiento" dentro
-  // de esa misma carpeta, sin necesidad de una carpeta nueva). `facturarBajoClienteId:'c22'` hace
-  // que sus sesiones se sumen a la cuenta de cobro de Jorge en vez de generar una propia — ver
-  // clientesAgrupadosPara_.
-  {id:'c44', nombre:'Camila Sarmiento', cc:'21.067.591', edad:72, direccion:'Calle 95 #17-30, barrio Chico, Bogotá', telefono:'304 629 3067', diagnostico:'Osteoporosis tipo 1 de bajo impacto, controlada con medicamentos y ejercicio. Entrena junto con su esposo Jorge Restrepo (cliente aparte "c22", mismo domicilio) desde agosto 2021 — la cuenta de cobro de ambos se hace a nombre de Jorge.', tarifa:60400, activo:true, drive:'12f02r6DxEkJZSXmz_H20UPHcOkkdmgJW', facturarBajoClienteId:'c22'},
+  // de esa misma carpeta, sin necesidad de una carpeta nueva). 30/07/2026: tiene su propia cuenta
+  // de cobro independiente (se retiró `facturarBajoClienteId`, ver MODALIDADES_SESION).
+  {id:'c44', nombre:'Camila Sarmiento', cc:'21.067.591', edad:72, direccion:'Calle 95 #17-30, barrio Chico, Bogotá', telefono:'304 629 3067', diagnostico:'Osteoporosis tipo 1 de bajo impacto, controlada con medicamentos y ejercicio. Entrena junto con su esposo Jorge Restrepo (cliente aparte "c22", mismo domicilio) desde agosto 2021 — cada uno con su propia cuenta de cobro (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos, ver MODALIDADES_SESION).', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'12f02r6DxEkJZSXmz_H20UPHcOkkdmgJW'},
   // 27/07/2026: cliente nuevo — Santiago Agreda, pareja de Jineth Prieto (c19), antes solo
   // mencionado como nota dentro del registro de Jineth. Comparte la carpeta de Drive de Jineth
-  // (misma razón que con Camila/Jorge arriba). `facturarBajoClienteId:'c19'` hace que sus sesiones
-  // se sumen a la cuenta de cobro de Jineth en vez de generar una propia.
-  {id:'c45', nombre:'Santiago Agreda', cc:'1.018.433.116', edad:'Pendiente', direccion:'Transversal 1 #58-55, Apto 703, Bogotá', telefono:'304 647 1264', diagnostico:'Entrena junto con su pareja Jineth Prieto (cliente aparte "c19", misma dirección) — la cuenta de cobro de ambos se hace a nombre de Jineth.', tarifa:60400, activo:true, drive:'1z5NCHjEISE-3Sxbdfhs-Ex0gHyDakfmS', facturarBajoClienteId:'c19'},
+  // (misma razón que con Camila/Jorge arriba). 30/07/2026: tiene su propia cuenta de cobro
+  // independiente (se retiró `facturarBajoClienteId`, ver MODALIDADES_SESION).
+  {id:'c45', nombre:'Santiago Agreda', cc:'1.018.433.116', edad:'Pendiente', direccion:'Transversal 1 #58-55, Apto 703, Bogotá', telefono:'304 647 1264', diagnostico:'Entrena junto con su pareja Jineth Prieto (cliente aparte "c19", misma dirección) — cada uno con su propia cuenta de cobro (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos, ver MODALIDADES_SESION).', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, activo:true, drive:'1z5NCHjEISE-3Sxbdfhs-Ex0gHyDakfmS'},
 ];
 
 const TIPO_CANCELACION = [
@@ -3300,17 +3305,13 @@ function renderRegistro(){
   const sugerencias = q ? misClientes.filter(c=>c.nombre.toLowerCase().includes(q)).slice(0,10) : [];
   const clienteSel = selectedClienteRegistro ? misClientes.find(c=>c.id===selectedClienteRegistro) : null;
   const disabledAttr = clienteSel ? '' : 'disabled';
-  // 27/07/2026: pedido explícito de Andersson — parejas que entrenan juntas y facturan a nombre de
-  // uno solo (Jorge/Camila, Jineth/Santiago — ver clientesAgrupadosPara_), y clientes que facturan a
-  // nombre de otra persona (Sebastian Garay → Victoria Sur, su mamá/acudiente — ver `facturarA` en
-  // computeInvoice). Se avisa en pantalla para que quede claro por qué no hay botón de "Generar
-  // cuenta de cobro" en el primer caso, y a nombre de quién sale la factura en el segundo.
-  const clientePrincipalFactura = clienteSel && clienteSel.facturarBajoClienteId ? CLIENTES.find(c=>c.id===clienteSel.facturarBajoClienteId) : null;
-  const notaFacturacion = (isAdmin && clienteSel) ? (
-    clientePrincipalFactura
-      ? `<div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">La cuenta de cobro de ${clienteSel.nombre} se genera junto con la de <b>${clientePrincipalFactura.nombre}</b> — búscalo a él/ella para generarla.</div>`
-      : (clienteSel.facturarA ? `<div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">La cuenta de cobro de ${clienteSel.nombre} se emite a nombre de <b>${clienteSel.facturarA.nombre}</b>.</div>` : '')
-  ) : '';
+  // 27/07/2026: pedido explícito de Andersson — clientes que facturan a nombre de otra persona
+  // (Sebastian Garay → Victoria Sur, su mamá/acudiente — ver `facturarA` en computeInvoice). Se
+  // avisa en pantalla a nombre de quién sale la factura.
+  // 30/07/2026: las parejas que entrenan juntas (Jorge/Camila, Jineth/Santiago, Gladys/Susan) ya NO
+  // fusionan su cuenta de cobro — cada uno genera la suya propia normalmente (ver MODALIDADES_SESION),
+  // así que ya no hace falta ningún aviso especial para ellas aquí.
+  const notaFacturacion = (isAdmin && clienteSel && clienteSel.facturarA) ? `<div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">La cuenta de cobro de ${clienteSel.nombre} se emite a nombre de <b>${clienteSel.facturarA.nombre}</b>.</div>` : '';
 
   el.innerHTML = `
     <div class="fade-up" style="position:relative;z-index:2;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px;">
@@ -3328,7 +3329,7 @@ function renderRegistro(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnExportExcel" ${disabledAttr}><span style="width:14px;height:14px;display:inline-flex">${ICONS.download}</span>Exportar Excel</button>` : ''}
         <button class="btn btn-dark btn-sm" id="btnAddRegistro" ${disabledAttr}><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Nuevo registro</button>
-        ${isAdmin && !clientePrincipalFactura ? `<button class="btn btn-primary btn-sm" id="btnGenInvoice" ${disabledAttr}><span style="width:14px;height:14px;display:inline-flex">${ICONS.file}</span>Generar cuenta de cobro</button>` : ''}
+        ${isAdmin ? `<button class="btn btn-primary btn-sm" id="btnGenInvoice" ${disabledAttr}><span style="width:14px;height:14px;display:inline-flex">${ICONS.file}</span>Generar cuenta de cobro</button>` : ''}
       </div>
     </div>
     ${notaFacturacion}
@@ -3359,7 +3360,6 @@ function renderRegistro(){
     document.getElementById('btnAddRegistro').addEventListener('click', openAddRegistroModal);
     if(isAdmin){
       document.getElementById('btnExportExcel').addEventListener('click', ()=>exportRegistroExcel(selectedClienteRegistro));
-      // 27/07/2026: el botón no existe cuando este cliente factura bajo otro (ver clientePrincipalFactura/notaFacturacion arriba) — se protege con un chequeo antes de engancharlo.
       const btnGenInvoice = document.getElementById('btnGenInvoice');
       if(btnGenInvoice) btnGenInvoice.addEventListener('click', ()=>openInvoiceModal(selectedClienteRegistro));
     }
@@ -3404,14 +3404,11 @@ function renderTablaRegistro(){
   // pantalla — nextInvoiceNumero() tiene efecto secundario y debe llamarse solo al generar una
   // cuenta de cobro real.
   const clienteReg = CLIENTES.find(c=>c.id===selectedClienteRegistro);
-  // 27/07/2026: si este cliente factura bajo otro (pareja que entrena junta — ver
-  // clientesAgrupadosPara_), NO se muestra un valor en pesos aquí — mostrar "$XXX" bajo el nombre
-  // de, por ejemplo, Camila daría la falsa impresión de que a ella se le cobra algo por separado,
-  // cuando en realidad sus sesiones ya están incluidas en la cuenta de cobro de Jorge. Se avisa con
-  // texto en vez de un monto.
-  const clientePrincipalFacturaReg = clienteReg && clienteReg.facturarBajoClienteId ? CLIENTES.find(c=>c.id===clienteReg.facturarBajoClienteId) : null;
+  // 30/07/2026: cada cliente (incluidas las parejas que entrenan juntas) tiene siempre su propia
+  // cuenta de cobro — ver MODALIDADES_SESION — así que el valor generado se muestra siempre que haya
+  // tarifa verificada.
   let valorGenerado = null;
-  if(!clientePrincipalFacturaReg && clienteReg && clienteReg.tarifa!=null){
+  if(clienteReg && clienteReg.tarifa!=null){
     const meses = [...new Set(rows.filter(r=>r.fecha).map(r=>r.fecha.slice(0,7)))];
     valorGenerado = meses.reduce((acc,m)=>acc + computeInvoiceValues(selectedClienteRegistro, m).total, 0);
   }
@@ -3450,10 +3447,15 @@ function renderTablaRegistro(){
         const abierto = r.estado!=='cerrado';
         const estadoLabel = abierto ? 'Falta cierre' : 'Completo';
         const estadoStyle = abierto ? 'background:#fef3c7;color:#92400e;' : 'background:var(--teal-light);color:var(--teal-dark);';
+        // 30/07/2026: modalidadCanonica_ traduce los valores viejos 'Presencial'/'Virtual' (que
+        // siguen llegando de registros ya sincronizados desde antes de este cambio) al vocabulario
+        // nuevo de 5 opciones — ver MODALIDADES_SESION.
+        const modalidadDisplay = modalidadCanonica_(r.modalidad) || 'Entrenamiento adaptado Presencial';
+        const modalidadPillClass = modalidadDisplay==='Masaje' ? 'pill-warning' : modalidadDisplay.includes('Online') ? 'pill-accent' : 'pill-teal';
         return `
       <tr>
         <td>${i+1}</td><td>${fmtFechaCorta(r.fecha)}</td><td style="white-space:nowrap;">${profesorNombre(r.profesorId)}</td>
-        <td><span class="pill ${r.modalidad==='Virtual'?'pill-accent':r.modalidad==='Masaje'?'pill-warning':'pill-teal'}" style="font-size:10.5px;">${r.modalidad||'Presencial'}</span></td>
+        <td><span class="pill ${modalidadPillClass}" style="font-size:10.5px;">${modalidadDisplay}</span></td>
         <td><span class="pill" style="font-size:10.5px;${estadoStyle}">${estadoLabel}</span></td>
         <td>${cellFor(r.preSis)}</td><td>${cellFor(r.preDia)}</td><td>${cellFor(r.prePpm)}</td><td>${r.preSpo2!=null&&r.preSpo2!==''?r.preSpo2+'%':dash}</td>
         <td>${cellFor(r.postSis)}</td><td>${cellFor(r.postDia)}</td><td>${cellFor(r.postPpm)}</td><td>${r.postSpo2!=null&&r.postSpo2!==''?r.postSpo2+'%':dash}</td>
@@ -3469,7 +3471,7 @@ function renderTablaRegistro(){
       <tr>
         <td colspan="15" style="background:var(--paper-dim);font-weight:700;font-size:12.5px;padding:10px 12px;border-top:1.5px solid var(--line);">
           <div>Subtotal: ${totalSesiones} ${totalSesiones===1?'sesión':'sesiones'} dictada${totalSesiones===1?'':'s'} · ${totalCancelaciones} cancelaci${totalCancelaciones===1?'ón':'ones'}${desgloseCancel?` (${desgloseCancel})`:''}</div>
-          <div style="margin-top:3px;color:var(--ink-soft);">${clientePrincipalFacturaReg ? `Se factura junto con <b>${clientePrincipalFacturaReg.nombre}</b> — el valor en pesos aparece en su cuenta de cobro, no en la de ${clienteReg.nombre}.` : valorGenerado!=null ? `Valor generado para cobrar: <span style="color:var(--ink);">${money(valorGenerado)}</span>` : `Valor no disponible — la tarifa de ${clienteReg?clienteReg.nombre:'este cliente'} no está verificada contra Drive.`}</div>
+          <div style="margin-top:3px;color:var(--ink-soft);">${valorGenerado!=null ? `Valor generado para cobrar: <span style="color:var(--ink);">${money(valorGenerado)}</span>` : `Valor no disponible — la tarifa de ${clienteReg?clienteReg.nombre:'este cliente'} no está verificada contra Drive.`}</div>
         </td>
       </tr>
     </tfoot>` : ''}
@@ -3496,7 +3498,7 @@ function renderTablaRegistro(){
 function ensureHistorialCompletada(clienteId, fecha, profesorId, modalidad){
   const existe = HISTORIAL.find(h=>h.clienteId===clienteId && h.fecha===fecha && h.estado==='completada');
   if(!existe){
-    HISTORIAL.push({ id:'h'+Date.now()+'_'+clienteId, clienteId, profesorId, fecha, tipo:`Entrenamiento adaptado ${modalidad==='Virtual'?'Online':'Presencial'}`, estado:'completada' });
+    HISTORIAL.push({ id:'h'+Date.now()+'_'+clienteId, clienteId, profesorId, fecha, tipo:modalidadCanonica_(modalidad), estado:'completada' });
   }
 }
 
@@ -3549,11 +3551,6 @@ function openAddRegistroModal(){
   const now = isoDate(new Date());
   registroCompaneros = [];
   registroCompanerosSearch = '';
-  // 27/07/2026: pedido explícito de Andersson — el valor del masaje ($130.000) es información solo
-  // para el administrador, no debe verla el profesor al registrar la sesión. "Nuevo registro" lo
-  // abre CUALQUIER rol (a diferencia de "Editar registro", que ya es exclusivo del administrador),
-  // así que aquí sí hace falta ocultar el precio explícitamente para el profesor.
-  const etiquetaMasaje = STATE.user.rol==='admin' ? 'Masaje ($130.000)' : 'Masaje';
   openModal(`
     <div class="modal-head">
       <h3>Nuevo registro de sesión</h3>
@@ -3567,15 +3564,13 @@ function openAddRegistroModal(){
           <div class="field"><label>Fecha</label><input type="date" id="rFecha" value="${now}"></div>
           <div class="field"><label>Modalidad</label>
             <select id="rModalidad">
-              <option value="Presencial">Presencial</option>
-              <option value="Virtual">Virtual</option>
-              <option value="Masaje">${etiquetaMasaje}</option>
+              ${modalidadSelectOptionsHTML()}
             </select>
           </div>
         </div>
         <div class="field" id="companerosField">
           <label>¿Sesión conjunta con otro cliente? (opcional)</label>
-          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando dos clientes toman la misma clase a la misma hora (ej. Susan Suárez y Gladys Gutiérrez los viernes). Cada cliente del grupo tiene su propio bloque de datos abajo, con su propio registro individual — así queda claro cuál es el de cada uno.</div>
+          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando dos clientes toman la misma clase a la misma hora (ej. Susan Suárez y Gladys Gutiérrez los viernes). Cada cliente del grupo tiene su propio bloque de datos abajo, con su propio registro individual — así queda claro cuál es el de cada uno. Recuerda elegir la modalidad "Entrenamiento semipersonalizado" arriba para que a cada uno se le cobre el valor correcto.</div>
           <div id="companerosChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
           <div style="position:relative;">
             <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
@@ -3605,9 +3600,22 @@ function openAddRegistroModal(){
         const cid = x.dataset.removeComp;
         registroCompaneros = registroCompaneros.filter(id=>id!==cid);
         document.querySelector(`[data-persona-block="${cid}"]`)?.remove();
+        ajustarModalidadPorCompaneros_();
         renderCompaneroChips(); renderCompaneroResultados();
       });
     });
+  }
+  // 30/07/2026: ayuda de UX — si el profesor agrega un compañero, sugiere automáticamente la
+  // modalidad "semipersonalizado" correspondiente (Presencial u Online, según lo que ya tenía
+  // elegido); si quita a todos los compañeros, vuelve a sugerir "adaptado". El profesor puede
+  // cambiarlo manualmente en cualquier momento — esto es solo una ayuda, no una regla forzada.
+  function ajustarModalidadPorCompaneros_(){
+    const sel = document.getElementById('rModalidad');
+    if(!sel) return;
+    const aSemi = {'Entrenamiento adaptado Presencial':'Entrenamiento semipersonalizado Presencial', 'Entrenamiento adaptado Online':'Entrenamiento semipersonalizado Online'};
+    const aAdaptado = {'Entrenamiento semipersonalizado Presencial':'Entrenamiento adaptado Presencial', 'Entrenamiento semipersonalizado Online':'Entrenamiento adaptado Online'};
+    if(registroCompaneros.length>0 && aSemi[sel.value]) sel.value = aSemi[sel.value];
+    else if(registroCompaneros.length===0 && aAdaptado[sel.value]) sel.value = aAdaptado[sel.value];
   }
   function renderCompaneroResultados(){
     const q = registroCompanerosSearch.trim().toLowerCase();
@@ -3622,6 +3630,7 @@ function openAddRegistroModal(){
         registroCompanerosSearch='';
         document.getElementById('rCompaneroSearch').value='';
         document.getElementById('personasSaludContainer').insertAdjacentHTML('beforeend', personaSaludBlockHTML(cid));
+        ajustarModalidadPorCompaneros_();
         renderCompaneroChips(); renderCompaneroResultados();
       });
     });
@@ -3752,9 +3761,7 @@ function openEditarRegistroModal(registroId){
           <div class="field"><label>Fecha</label><input type="date" id="eFecha" value="${r.fecha}"></div>
           <div class="field"><label>Modalidad</label>
             <select id="eModalidad">
-              <option value="Presencial" ${(r.modalidad!=='Virtual'&&r.modalidad!=='Masaje')?'selected':''}>Presencial</option>
-              <option value="Virtual" ${r.modalidad==='Virtual'?'selected':''}>Virtual</option>
-              <option value="Masaje" ${r.modalidad==='Masaje'?'selected':''}>Masaje ($130.000)</option>
+              ${modalidadSelectOptionsHTML(r.modalidad)}
             </select>
           </div>
         </div>
@@ -3903,7 +3910,7 @@ function openEliminarRegistroModal(registroId){
     <div class="modal-body">
       <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
         <div style="font-weight:700;">${cliente.nombre}</div>
-        <div class="section-sub">${fmtFechaCorta(r.fecha)} · ${r.estado==='cancelada' ? (CANCEL_META[r.tipoCancelacion]?.label||'Cancelación') : (r.modalidad||'Presencial')}</div>
+        <div class="section-sub">${fmtFechaCorta(r.fecha)} · ${r.estado==='cancelada' ? (CANCEL_META[r.tipoCancelacion]?.label||'Cancelación') : (modalidadCanonica_(r.modalidad)||'Entrenamiento adaptado Presencial')}</div>
       </div>
       <div class="card" style="padding:12px 14px;background:#FEF2F2;border:1.5px solid #FCA5A5;">
         <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:4px;">Esta acción no se puede deshacer</div>
@@ -3994,11 +4001,11 @@ function registroSaludTexto(clienteId, fecha){
 // promedio con menos datos de los que realmente hay). Devuelve null si ningún registro del mes
 // tiene ni un solo dato de salud utilizable, para no mostrar un promedio vacío/engañoso.
 function promedioSaludMes(clienteId, monthStr){
-  // 29/07/2026: igual que sesionesCompletadasDelMes/computeInvoiceValues — para una pareja que
-  // entrena junta y factura a nombre de uno solo, el promedio de datos de salud del final de la
-  // cuenta de cobro debe incluir las sesiones de AMBOS integrantes, no solo las del titular.
-  const idsGrupo = clientesAgrupadosPara_(clienteId);
-  const registros = REGISTROS.filter(r=>idsGrupo.includes(r.clienteId) && r.fecha && r.fecha.startsWith(monthStr));
+  // 30/07/2026: con el modelo de facturación por modalidad (ver nota junto a MODALIDADES_SESION),
+  // cada cliente vuelve a tener su propio registro y su propia cuenta de cobro por separado —
+  // incluidas las parejas que entrenan juntas (semipersonalizado) — así que el promedio de salud
+  // solo mira las sesiones del propio cliente, como cualquier cliente individual.
+  const registros = REGISTROS.filter(r=>r.clienteId===clienteId && r.fecha && r.fecha.startsWith(monthStr));
   const campos = ['preSis','preDia','prePpm','preSpo2'];
   const naCampo = { preSis:'preSisNA', preDia:'preDiaNA', prePpm:'prePpmNA', preSpo2:'preSpo2NA' };
   const sumas = {}, conteos = {};
@@ -4045,77 +4052,66 @@ function promedioSaludTexto(promedio){
 // resumenValorProfesorMes (resumen por profesor) y el subtotal en pantalla de "Registro de
 // sesiones" (que ya reutiliza computeInvoiceValues, así que hereda esto automáticamente).
 const COSTO_MASAJE = 130000;
-// 27/07/2026 — pedido explícito de Andersson: hay parejas que entrenan SIEMPRE juntas (ej. Jorge
-// Restrepo y Camila Sarmiento; Jineth Prieto y Santiago Agreda) — cada uno es un cliente aparte,
-// con su propio registro de salud por sesión (usando "¿Sesión conjunta con otro cliente?" en Nuevo
-// registro), pero la cuenta de cobro se hace UNA SOLA VEZ, a nombre de uno solo de los dos (el
-// "cliente principal"/pagador). Un cliente "secundario" declara esto con el campo nuevo
-// `facturarBajoClienteId` (el id del cliente principal). `clientesAgrupadosPara_` devuelve el id
-// pedido más el de cualquier cliente que declare facturar bajo él — se usa en
-// sesionesCompletadasDelMes/cancelacionesDelMes para que la cuenta de cobro del cliente principal
-// incluya también las sesiones del secundario, sin que el secundario tenga nunca su propia cuenta
-// de cobro por separado (ver renderRegistro/renderTablaRegistro, que ocultan "Generar cuenta de
-// cobro" y el subtotal en pesos para cualquier cliente marcado como secundario).
-function clientesAgrupadosPara_(clienteId){
-  return [clienteId, ...CLIENTES.filter(c=>c.facturarBajoClienteId===clienteId).map(c=>c.id)];
+// 30/07/2026 — pedido explícito de Andersson: nuevo modelo ÚNICO de facturación por modalidad,
+// reemplaza los dos mecanismos especiales anteriores (fusión de cuenta con `facturarBajoClienteId`,
+// usado para Jorge/Camila y Jineth/Santiago; y la mitad de tarifa de `PAREJA_FACTURACION_MITAD`,
+// usado para Gladys/Susan — ambos retirados hoy). Ahora el profesor elige, al registrar la sesión,
+// una de 5 modalidades — dos para entrenamiento individual ("adaptado") y dos para cuando la sesión
+// se comparte con otro cliente ("semipersonalizado") — y CADA cliente vuelve a tener siempre su
+// propia cuenta de cobro independiente, cobrada al valor exacto que indique la lista de precios para
+// esa modalidad puntual. Ninguna pareja necesita configuración especial en el código: cualquier
+// pareja nueva funciona automático, siempre que el profesor marque "semipersonalizado" al registrar.
+// Los 5 precios por cliente vienen de la lista de precios en Drive (Google Sheet aparte, confirmada
+// con Andersson el 30/07/2026 — fila 1 trae exactamente estos 5 nombres) y se cargan en CLIENTES
+// como `tarifa` (adaptado presencial, el campo de siempre — nunca cambió de nombre ni de significado),
+// `tarifaOnline`, `tarifaSemiPresencial`, `tarifaSemiOnline` y `tarifaMasaje`.
+const MODALIDADES_SESION = [
+  'Entrenamiento adaptado Presencial',
+  'Entrenamiento adaptado Online',
+  'Entrenamiento semipersonalizado Presencial',
+  'Entrenamiento semipersonalizado Online',
+  'Masaje',
+];
+// Genera las 5 <option> del selector de modalidad (usado en Nuevo registro y Editar registro), con la
+// opción correcta preseleccionada. El precio del masaje solo se muestra al administrador (el profesor
+// ve la opción sin precio) — igual que ya funcionaba antes de este cambio.
+function modalidadSelectOptionsHTML(valorActual){
+  const seleccion = valorActual ? modalidadCanonica_(valorActual) : MODALIDADES_SESION[0];
+  const etiquetaMasaje = (typeof STATE!=='undefined' && STATE.user && STATE.user.rol==='admin') ? 'Masaje ($130.000)' : 'Masaje';
+  return MODALIDADES_SESION.map(m=>{
+    const label = m==='Masaje' ? etiquetaMasaje : m;
+    return `<option value="${m}" ${seleccion===m?'selected':''}>${label}</option>`;
+  }).join('');
 }
-// 29/07/2026 — pedido explícito de Andersson, caso distinto al de arriba: Gladys Gutiérrez (c16) y
-// Susan Suárez (c42) entrenan juntas los viernes, pero a diferencia de Jorge/Camila y Jineth/Santiago
-// NO se fusiona la cuenta de cobro en una sola — cada una conserva su propia cuenta de cobro y su
-// propia tarifa normal, pero la sesión conjunta de los viernes se cobra a la MITAD del valor normal
-// en la cuenta de CADA una (nunca el valor completo en las dos, ni gratis en ninguna) — el total
-// cobrado entre las dos por esa clase sigue siendo el de una sola sesión.
-// Para que esto aplique, la sesión debe registrarse marcando "¿Sesión conjunta con otro cliente?" en
-// Nuevo registro con la otra persona del par — si alguna de las dos toma una clase ese día sin marcar
-// a la otra como compañera (ej. porque la otra no asistió), esa sesión se cobra a tarifa completa,
-// normal.
-const PAREJA_FACTURACION_MITAD = {
-  'c16': 'c42', // Gladys Gutiérrez — mitad de tarifa cuando la sesión fue conjunta con Susan Suárez
-  'c42': 'c16', // Susan Suárez — mitad de tarifa cuando la sesión fue conjunta con Gladys Gutiérrez
-};
-// `companeros` en REGISTROS guarda NOMBRES (no ids, ver btnSaveRegistro/renderTablaRegistro), así que
-// la comparación se hace contra el nombre actual del compañero en CLIENTES.
-function esSesionMitadTarifa_(registro){
-  if(!registro) return false;
-  const parejaId = PAREJA_FACTURACION_MITAD[registro.clienteId];
-  if(!parejaId) return false;
-  const parejaNombre = (CLIENTES.find(c=>c.id===parejaId)||{}).nombre;
-  return !!(parejaNombre && Array.isArray(registro.companeros) && registro.companeros.includes(parejaNombre));
+// Los registros ya sincronizados desde antes de este cambio (en los Excel reales de cada cliente en
+// Drive) siguen guardando los valores viejos 'Presencial'/'Virtual' — esos Sheets NUNCA se reescriben
+// (así se acordó con Andersson: "no dañar los registros ya realizados"), así que la app debe seguir
+// reconociéndolos para siempre. `modalidadCanonica_` traduce cualquier modalidad (vieja o nueva) al
+// vocabulario nuevo de 5 opciones, para que el resto del código trabaje siempre con uno solo.
+function modalidadCanonica_(modalidad){
+  if(modalidad==='Presencial') return 'Entrenamiento adaptado Presencial';
+  if(modalidad==='Virtual') return 'Entrenamiento adaptado Online';
+  return modalidad; // ya es uno de los 5 valores nuevos (o 'Masaje', que no cambió nunca)
 }
-function costoEntrenamiento_(cliente, registro){
-  return esSesionMitadTarifa_(registro) ? Math.round(cliente.tarifa/2) : cliente.tarifa;
+// Precio real de una sesión, según la modalidad y la lista de precios de ESE cliente. Si el cliente
+// no tiene un valor cargado para esa modalidad puntual en la lista de precios (columna vacía en el
+// Excel), se usa el valor individual/adaptado como respaldo razonable — nunca se deja la sesión sin
+// costo por un dato faltante, pero tampoco se inventa un número que no venga de ninguna fuente.
+function precioPorModalidad_(cliente, modalidad){
+  switch(modalidadCanonica_(modalidad)){
+    case 'Entrenamiento adaptado Presencial': return cliente.tarifa;
+    case 'Entrenamiento adaptado Online': return (cliente.tarifaOnline!=null) ? cliente.tarifaOnline : cliente.tarifa;
+    case 'Entrenamiento semipersonalizado Presencial': return (cliente.tarifaSemiPresencial!=null) ? cliente.tarifaSemiPresencial : Math.round(cliente.tarifa/2);
+    case 'Entrenamiento semipersonalizado Online': return (cliente.tarifaSemiOnline!=null) ? cliente.tarifaSemiOnline : Math.round((cliente.tarifaOnline||cliente.tarifa)/2);
+    case 'Masaje': return (cliente.tarifaMasaje!=null) ? cliente.tarifaMasaje : COSTO_MASAJE;
+    default: return cliente.tarifa;
+  }
 }
 function sesionesCompletadasDelMes(clienteId, monthStr){
-  const idsGrupo = clientesAgrupadosPara_(clienteId);
-  let regs = REGISTROS.filter(r=>idsGrupo.includes(r.clienteId) && r.estado!=='cancelada' && r.fecha && r.fecha.startsWith(monthStr));
-  let conOrigen;
-  if(idsGrupo.length>1){
-    // Se está agrupando más de un cliente (pareja que entrena junta): si ambos tienen su propio
-    // registro para LA MISMA fecha Y LA MISMA modalidad (la sesión conjunta de siempre), se cuenta y
-    // cobra UNA SOLA VEZ, nunca doble por dos personas en la misma clase. Si alguno de los dos tomó
-    // además algo distinto ese mismo día (ej. un masaje aparte), sí se cuenta por separado (fecha
-    // igual pero modalidad distinta no se deduplica).
-    // 29/07/2026 — bug real reportado por Andersson: "no sale los datos de salud de Camila" en la
-    // cuenta de cobro de Jorge. Causa: al deduplicar aquí se descartaba silenciosamente el registro
-    // de la segunda persona (ej. Camila) — se conservaba solo el primero que apareciera en REGISTROS,
-    // normalmente el del titular de la factura — y ese único registro sobreviviente era el que se
-    // usaba después para buscar los datos de salud, perdiendo por completo los de su pareja. Ahora se
-    // agrupan los registros por fecha+modalidad SIN descartar ninguno, y cada entrada de salida
-    // recuerda en `idsOrigen` los ids de TODAS las personas que registraron esa sesión conjunta —
-    // `computeInvoiceValues` usa esa lista para mostrar la salud de cada integrante por separado.
-    const porClave = new Map();
-    regs.forEach(r=>{
-      const clave = r.fecha+'|'+r.modalidad;
-      if(!porClave.has(clave)) porClave.set(clave, []);
-      porClave.get(clave).push(r);
-    });
-    conOrigen = Array.from(porClave.values()).map(grupo=>Object.assign({}, grupo[0], {idsOrigen: grupo.map(r=>r.clienteId)}));
-  } else {
-    conOrigen = regs.map(r=>Object.assign({}, r, {idsOrigen: [r.clienteId]}));
-  }
-  return conOrigen
+  return REGISTROS
+    .filter(r=>r.clienteId===clienteId && r.estado!=='cancelada' && r.fecha && r.fecha.startsWith(monthStr))
     .sort((a,b)=>a.fecha.localeCompare(b.fecha))
-    .map(r=>({fecha:r.fecha, profesorId:r.profesorId, modalidad:r.modalidad, tipo: r.modalidad==='Masaje' ? 'Masaje' : `Entrenamiento adaptado ${r.modalidad==='Virtual'?'Online':'Presencial'}`, estado:'completada', idsOrigen:r.idsOrigen, mitadTarifa:esSesionMitadTarifa_(r)}));
+    .map(r=>({fecha:r.fecha, profesorId:r.profesorId, modalidad:modalidadCanonica_(r.modalidad), estado:'completada'}));
 }
 
 // 24/07/2026: las cancelaciones (registradas desde el módulo Horario) ahora también se guardan
@@ -4124,14 +4120,9 @@ function sesionesCompletadasDelMes(clienteId, monthStr){
 // que una cancelación hecha en un dispositivo apareciera solo en la cuenta de cobro de ESE mismo
 // dispositivo — pedido explícito del usuario ("las cancelaciones deben salir en los registros de
 // sesión vistas por los profes y que salgan en la cuenta de cobro").
-// 27/07/2026: también se agrupa por clientesAgrupadosPara_ (ver nota junto a sesionesCompletadasDelMes)
-// — en la práctica, como las cancelaciones solo se generan contra el cliente que de verdad tiene un
-// espacio en Horario (el principal/pagador, el secundario no tiene su propio horario), esto rara
-// vez cambia nada, pero mantiene el mismo criterio de agrupación en los dos lados del cálculo.
 function cancelacionesDelMes(clienteId, monthStr){
-  const idsGrupo = clientesAgrupadosPara_(clienteId);
   return REGISTROS
-    .filter(r=>idsGrupo.includes(r.clienteId) && r.estado==='cancelada' && r.fecha && r.fecha.startsWith(monthStr))
+    .filter(r=>r.clienteId===clienteId && r.estado==='cancelada' && r.fecha && r.fecha.startsWith(monthStr))
     .map(r=>({fecha:r.fecha, profesorId:r.profesorId, estado:'cancelada', tipoCancelacion:r.tipoCancelacion}));
 }
 
@@ -4143,41 +4134,22 @@ function cancelacionesDelMes(clienteId, monthStr){
 // "Registro de sesiones" (que se recalcula en cada render, muchas veces por sesión de uso), había
 // que separar el cálculo puro del efecto secundario para no quemar números de cuenta de cobro que
 // nunca se llegan a generar.
-// 29/07/2026 — ver nota junto a sesionesCompletadasDelMes(): para una sesión conjunta (pareja que
-// entrena junta y factura a nombre de uno solo), `idsOrigen` trae los ids de TODAS las personas que
-// registraron esa fecha+modalidad. Antes se buscaba la salud solo del cliente titular de la factura
-// (`registroSaludTexto(clienteId, fecha)`), así que la de su pareja nunca aparecía en el detalle.
-// Ahora se junta la salud de cada integrante del grupo, identificada por su nombre, para que las dos
-// queden visibles — si es una sola persona (el caso normal, sin pareja), se comporta exactamente
-// igual que antes.
-function saludParaDetalle_(idsOrigen, fecha, clienteIdPorDefecto){
-  const ids = (idsOrigen && idsOrigen.length) ? idsOrigen : [clienteIdPorDefecto];
-  if(ids.length===1) return registroSaludTexto(ids[0], fecha);
-  return ids.map(id=>{
-    const nombre = (CLIENTES.find(c=>c.id===id)||{}).nombre || '';
-    const texto = registroSaludTexto(id, fecha);
-    return texto ? `${nombre} — ${texto}` : '';
-  }).filter(Boolean).join(' · ');
-}
 function computeInvoiceValues(clienteId, monthStr){
   const cliente = CLIENTES.find(c=>c.id===clienteId);
   const entries = [...sesionesCompletadasDelMes(clienteId, monthStr), ...cancelacionesDelMes(clienteId, monthStr)].sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  let anticipadaCount = 0, qtyCompletada=0, qtyCompletadaMitad=0, qtyMasaje=0, qtyAnticipadaCobrada=0, qtySobreTiempo=0, qtyProfesor=0;
+  let anticipadaCount = 0;
+  let qtyAdaptadoPresencial=0, qtyAdaptadoOnline=0, qtySemiPresencial=0, qtySemiOnline=0, qtyMasaje=0;
+  let qtyAnticipadaCobrada=0, qtySobreTiempo=0, qtyProfesor=0;
   const detalle = [];
   entries.forEach(h=>{
     if(h.estado==='completada'){
-      if(h.modalidad==='Masaje'){
-        qtyMasaje++;
-        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:h.tipo, costo:COSTO_MASAJE, salud:saludParaDetalle_(h.idsOrigen, h.fecha, clienteId)});
-      } else if(h.mitadTarifa){
-        // 29/07/2026 — ver PAREJA_FACTURACION_MITAD: sesión conjunta de los viernes (Gladys/Susan),
-        // cobrada a la mitad del valor normal en la cuenta de cada una.
-        qtyCompletadaMitad++;
-        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:h.tipo+' (sesión conjunta — tarifa dividida a la mitad)', costo:Math.round(cliente.tarifa/2), salud:saludParaDetalle_(h.idsOrigen, h.fecha, clienteId)});
-      } else {
-        qtyCompletada++;
-        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:h.tipo, costo:cliente.tarifa, salud:saludParaDetalle_(h.idsOrigen, h.fecha, clienteId)});
-      }
+      const costo = precioPorModalidad_(cliente, h.modalidad);
+      detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:h.modalidad, costo, salud:registroSaludTexto(clienteId, h.fecha)});
+      if(h.modalidad==='Masaje') qtyMasaje++;
+      else if(h.modalidad==='Entrenamiento adaptado Presencial') qtyAdaptadoPresencial++;
+      else if(h.modalidad==='Entrenamiento adaptado Online') qtyAdaptadoOnline++;
+      else if(h.modalidad==='Entrenamiento semipersonalizado Presencial') qtySemiPresencial++;
+      else if(h.modalidad==='Entrenamiento semipersonalizado Online') qtySemiOnline++;
     } else if(h.estado==='cancelada'){
       if(h.tipoCancelacion==='anticipada'){
         anticipadaCount++;
@@ -4201,17 +4173,21 @@ function computeInvoiceValues(clienteId, monthStr){
       }
     }
   });
+  const precioAdaptadoOnline = (cliente.tarifaOnline!=null) ? cliente.tarifaOnline : cliente.tarifa;
+  const precioSemiPresencial = precioPorModalidad_(cliente, 'Entrenamiento semipersonalizado Presencial');
+  const precioSemiOnline = precioPorModalidad_(cliente, 'Entrenamiento semipersonalizado Online');
+  const precioMasaje = precioPorModalidad_(cliente, 'Masaje');
   const items = [
-    {n:1, cant:qtyCompletada, desc:'Entrenamiento adaptado Presencial', unit:cliente.tarifa, total:qtyCompletada*cliente.tarifa},
-    // 27/07/2026: nuevo renglón fijo — solo aparece en la cuenta de cobro cuando hubo al menos un
-    // masaje ese mes (ver itemsVisibles: los ítems con cant===0 y n!==1 se ocultan solos).
-    {n:2, cant:qtyMasaje, desc:'Masaje', unit:COSTO_MASAJE, total:qtyMasaje*COSTO_MASAJE},
-    {n:3, cant:qtyAnticipadaCobrada, desc:'Cancelación anticipada presencial', unit:Math.round(cliente.tarifa*0.20), total:qtyAnticipadaCobrada*Math.round(cliente.tarifa*0.20)},
-    {n:4, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
-    {n:5, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
-    // 29/07/2026: renglón nuevo — solo aparece cuando hubo al menos una sesión conjunta a mitad de
-    // tarifa ese mes (ver PAREJA_FACTURACION_MITAD, caso Gladys/Susan).
-    {n:6, cant:qtyCompletadaMitad, desc:'Entrenamiento adaptado Presencial (sesión conjunta, tarifa dividida)', unit:Math.round(cliente.tarifa/2), total:qtyCompletadaMitad*Math.round(cliente.tarifa/2)},
+    {n:1, cant:qtyAdaptadoPresencial, desc:'Entrenamiento adaptado Presencial', unit:cliente.tarifa, total:qtyAdaptadoPresencial*cliente.tarifa},
+    // 30/07/2026: renglones n2-n5 solo aparecen en la cuenta de cobro cuando hubo al menos una
+    // sesión de ese tipo ese mes (ver itemsVisibles: los ítems con cant===0 y n!==1 se ocultan solos).
+    {n:2, cant:qtyAdaptadoOnline, desc:'Entrenamiento adaptado Online', unit:precioAdaptadoOnline, total:qtyAdaptadoOnline*precioAdaptadoOnline},
+    {n:3, cant:qtySemiPresencial, desc:'Entrenamiento semipersonalizado Presencial', unit:precioSemiPresencial, total:qtySemiPresencial*precioSemiPresencial},
+    {n:4, cant:qtySemiOnline, desc:'Entrenamiento semipersonalizado Online', unit:precioSemiOnline, total:qtySemiOnline*precioSemiOnline},
+    {n:5, cant:qtyMasaje, desc:'Masaje', unit:precioMasaje, total:qtyMasaje*precioMasaje},
+    {n:6, cant:qtyAnticipadaCobrada, desc:'Cancelación anticipada presencial', unit:Math.round(cliente.tarifa*0.20), total:qtyAnticipadaCobrada*Math.round(cliente.tarifa*0.20)},
+    {n:7, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
+    {n:8, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
   ];
   const total = items.reduce((a,i)=>a+i.total,0);
   return {cliente, items, total, detalle};
@@ -4976,45 +4952,27 @@ function rankingClientes(estado, limite=5){
 }
 
 // Valor real de las clases dictadas por un profesor en un mes, y valor de la pérdida por cancelaciones,
-// usando exactamente las mismas reglas de negocio y el mismo `cliente.tarifa` verificado contra Drive
-// que ya se usan en computeInvoice() para la cuenta de cobro — nunca se inventa ni se aproxima un valor.
-// Se agrupa por cliente para aplicar correctamente la regla de "1ª cancelación anticipada del mes sin costo".
+// usando exactamente las mismas reglas de negocio (precioPorModalidad_) que ya se usan en
+// computeInvoice() para la cuenta de cobro — nunca se inventa ni se aproxima un valor.
+// 30/07/2026: ya no hace falta agrupar por pareja/deduplicar aquí — con el modelo de facturación por
+// modalidad, cada cliente tiene siempre su propio registro y su propio precio (incluida la sesión
+// semipersonalizada de una pareja, que ya viene a su propio valor real desde la lista de precios), así
+// que sumar cada registro de cada cliente por separado ya da el valor correcto, sin doble conteo.
 function resumenValorProfesorMes(profesorId, monthStr){
   const entriesByClient = {};
-  // 27/07/2026: si un cliente factura bajo otro (pareja que entrena junta — ver
-  // clientesAgrupadosPara_ junto a sesionesCompletadasDelMes), sus entradas se agrupan bajo el
-  // cliente principal AQUÍ TAMBIÉN, para no inflar el valor generado por el profesor contando la
-  // misma clase conjunta dos veces (una por cada integrante de la pareja).
-  const clienteIdsOrigenPorPrincipal = {};
   REGISTROS.filter(r=>r.profesorId===profesorId && r.fecha && r.fecha.startsWith(monthStr)).forEach(r=>{
-    const clienteReg = CLIENTES.find(c=>c.id===r.clienteId);
-    const clienteIdPrincipal = (clienteReg && clienteReg.facturarBajoClienteId) || r.clienteId;
-    (entriesByClient[clienteIdPrincipal] = entriesByClient[clienteIdPrincipal]||[]).push(r);
-    (clienteIdsOrigenPorPrincipal[clienteIdPrincipal] = clienteIdsOrigenPorPrincipal[clienteIdPrincipal]||new Set()).add(r.clienteId);
+    (entriesByClient[r.clienteId] = entriesByClient[r.clienteId]||[]).push(r);
   });
   let valorClases = 0, valorPerdida = 0;
   Object.entries(entriesByClient).forEach(([clienteId, entries])=>{
     const cliente = CLIENTES.find(c=>c.id===clienteId);
     if(!cliente || cliente.tarifa==null) return; // sin tarifa verificada en Drive: no se inventa, se excluye del cálculo
-    // Solo se deduplica (misma fecha + misma modalidad = una sola sesión conjunta) cuando de verdad
-    // hay más de un cliente agrupado aquí — así un cliente normal que por coincidencia tenga dos
-    // sesiones reales el mismo día (ej. entrenamiento + masaje) las sigue contando ambas, como siempre.
-    const agrupaVarios = clienteIdsOrigenPorPrincipal[clienteId].size>1;
-    const vistos = new Set();
     let anticipadaCount = 0;
     entries.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)).forEach(h=>{
       if(h.estado!=='cancelada'){
-        if(agrupaVarios){
-          const clave = h.fecha+'|'+h.modalidad;
-          if(vistos.has(clave)) return;
-          vistos.add(clave);
-        }
-        // 27/07/2026: un masaje vale $130.000 fijo, no la tarifa individual del cliente — ver
-        // COSTO_MASAJE y la nota completa junto a sesionesCompletadasDelMes.
-        // 29/07/2026: si es una sesión conjunta a mitad de tarifa (ver PAREJA_FACTURACION_MITAD,
-        // caso Gladys/Susan), se cuenta a la mitad aquí también, para que el valor generado por el
-        // profesor coincida exactamente con lo que de verdad se factura.
-        valorClases += h.modalidad==='Masaje' ? COSTO_MASAJE : costoEntrenamiento_(cliente, h);
+        // 30/07/2026: precioPorModalidad_ ya cubre masaje, adaptado y semipersonalizado (y traduce
+        // los valores viejos 'Presencial'/'Virtual' que sigan llegando de Sheets ya sincronizados).
+        valorClases += precioPorModalidad_(cliente, h.modalidad);
       } else {
         if(h.tipoCancelacion==='anticipada'){
           anticipadaCount++;
