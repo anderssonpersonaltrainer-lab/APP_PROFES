@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.2">
+<meta name="app-version" content="2026-07-30.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3459,7 +3459,7 @@ function renderTablaRegistro(){
         <td><span class="pill" style="font-size:10.5px;${estadoStyle}">${estadoLabel}</span></td>
         <td>${cellFor(r.preSis)}</td><td>${cellFor(r.preDia)}</td><td>${cellFor(r.prePpm)}</td><td>${r.preSpo2!=null&&r.preSpo2!==''?r.preSpo2+'%':dash}</td>
         <td>${cellFor(r.postSis)}</td><td>${cellFor(r.postDia)}</td><td>${cellFor(r.postPpm)}</td><td>${r.postSpo2!=null&&r.postSpo2!==''?r.postSpo2+'%':dash}</td>
-        <td style="max-width:220px;">${r.detalle||''}${r.companeros&&r.companeros.length?`<div style="margin-top:4px;font-size:11px;color:var(--ink-fade);">👥 Sesión conjunta con: ${r.companeros.join(', ')} — cada uno tiene su propio registro individual, solo se muestra aquí para identificar la sesión compartida.</div>`:''}</td>
+        <td style="max-width:220px;">${r.detalle||''}${r.companeros&&r.companeros.length?`<div style="margin-top:4px;font-size:11px;color:var(--ink-fade);">👥 Sesión conjunta con: ${r.companeros.join(', ')}</div>`:''}</td>
         <td style="white-space:nowrap;">
           ${!isAdmin && abierto ? `<button class="btn btn-outline btn-sm" data-completar="${r.id}" style="margin-right:4px;">Clase completada</button>` : ''}
           ${isAdmin ? `<button class="btn btn-outline btn-sm" data-editar-reg="${r.id}" style="margin-right:4px;">Editar</button><button class="btn btn-outline btn-sm" data-eliminar-reg="${r.id}" style="color:var(--danger);border-color:var(--danger);">Eliminar</button>` : ''}
