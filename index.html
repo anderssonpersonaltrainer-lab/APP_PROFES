@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.8">
+<meta name="app-version" content="2026-07-30.9">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1147,6 +1147,18 @@ const CLIENTE_NAME_ALIASES = {
   'jinneth y santiago':'c19', // alias antiguo (antes de corregir el nombre en Drive) — se conserva por si el Excel vuelve a traer esta variante
   'jineth prieto y santiago agreda':'c19', // 29/07/2026: Andersson corrigió el nombre real en la carpeta de Drive (Anamnesis/horario) a "Jineth Prieto"; Jineth Prieto es la titular de la cuenta de cobro — Santiago Agreda es c45, cliente aparte desde 27/07/2026
   'gladys y susan':'c16', // sesión conjunta Gladys Gutierrez + Susan Suarez — Gladys queda como titular
+  // 30/07/2026 (noche): sesión conjunta María Lourdes (c30) + Ricardo Sarmiento (c40). El problema real
+  // (ver esAliasCombinado_ más abajo, ya corregido de raíz para que funcione con CUALQUIER pareja, no
+  // solo las que están en este mapa) era que solo se mostraban los dos nombres cuando el texto de la
+  // celda coincidía EXACTO con un alias de este mapa. Estas entradas quedan como respaldo extra, por si
+  // el texto de Drive llega a ser tan corto (ej. "María y Ricardo", solo nombres de pila) que ni
+  // siquiera el nombre completo de María Lourdes quepa dentro como para reconocerla por contención.
+  'maria lourdes y ricardo':'c30',
+  'ricardo y maria lourdes':'c30',
+  'maria lourdes y ricardo sarmiento':'c30',
+  'ricardo sarmiento y maria lourdes':'c30',
+  'maria y ricardo':'c30',
+  'ricardo y maria':'c30',
 };
 function normalizeNombre(s){
   return (s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
@@ -1156,9 +1168,15 @@ function normalizeNombre(s){
 // dentro de matchClienteId) para que `esAliasCombinado_` (ver nota junto a nombreParaMostrar_) pueda
 // usar exactamente la misma limpieza sin duplicar las expresiones regulares.
 function claveClienteDesdeTexto_(rawText){
+  // 30/07/2026 (noche): normalizeNombre corre primero y ya le quita los dos puntos a la hora (los
+  // reemplaza por un espacio, ej. "7:00" -> "7 00"), así que la siguiente línea (pensada para textos
+  // con los dos puntos todavía presentes, ej. "7:00 pm") nunca alcanzaba a coincidir en ese caso — se
+  // agrega esta línea extra para reconocer también "7 00" (el resto de una hora con dos puntos, ya
+  // normalizada) antes de intentar quitar solo un número final suelto.
   return normalizeNombre(rawText)
     .replace(/\ba las\s+\d{1,2}(:\d{2})?\s*(am|pm|m)?\b/g,'')
     .replace(/\b\d{1,2}:\d{2}\s*(am|pm)?\b/g,'')
+    .replace(/\b\d{1,2}\s+\d{2}\s*(am|pm)?\s*$/g,'')
     .replace(/\b\d{1,2}\s*(am|pm)?\b\s*$/g,'')
     .trim();
 }
@@ -1180,7 +1198,22 @@ function matchClienteId(rawText){
 // (sin la hora) como `nombreCrudo` en la fila de SCHEDULE, para que el horario siga mostrando los dos
 // nombres tal como están en Drive — ver nombreParaMostrar_.
 function esAliasCombinado_(rawText){
-  return !!CLIENTE_NAME_ALIASES[claveClienteDesdeTexto_(rawText)];
+  // 30/07/2026 (noche, 2º arreglo): la primera versión de esto solo reconocía como "celda combinada"
+  // los pares dejados a mano en CLIENTE_NAME_ALIASES (jorge y camila, jineth y santiago, gladys y
+  // susan) — así que un par real y ya facturado desde antes, como María Lourdes y Ricardo Sarmiento,
+  // seguía sin mostrar los dos nombres porque nadie había agregado ESE par exacto al mapa. Andersson
+  // pidió que esto no dependa de ir agregando cada pareja a mano: "que los nombres que se ven en el
+  // horario salgan tal cual están en el horario" para cualquier sesión conjunta, no solo las que ya
+  // conocíamos. Ahora se generaliza: cualquier celda cuyo texto (ya sin la hora) traiga la palabra "y"
+  // suelta Y que además logre resolver a un cliente real (por alias, por nombre exacto, o porque el
+  // texto contiene el nombre completo de algún cliente — la misma resolución que ya usa
+  // matchClienteId) se trata como sesión conjunta y se muestra tal cual viene de Drive. Los alias
+  // manuales (CLIENTE_NAME_ALIASES) se siguen revisando primero dentro de matchClienteId — solo hacen
+  // falta cuando ninguna de las dos personas puede reconocerse por su nombre completo dentro del
+  // texto de la celda (ver nota en matchClienteId).
+  const clave = claveClienteDesdeTexto_(rawText);
+  if(!clave || !/\by\b/.test(clave)) return false;
+  return !!matchClienteId(rawText);
 }
 // Igual que claveClienteDesdeTexto_, pero SIN pasar por normalizeNombre (que pone todo en minúsculas
 // y quita tildes) — para mostrar el texto tal cual se ve en Drive, solo quitándole la frase de hora.
