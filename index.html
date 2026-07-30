@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.9">
+<meta name="app-version" content="2026-07-30.10">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1479,8 +1479,23 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
   SCHEDULE_OVERRIDES.forEach(o=>{
     if(!o || !o.fecha || !o.fecha.startsWith(mesStr)) return;
     const existente = SCHEDULE.find(x=>x.id===o.id);
-    if(existente) Object.assign(existente, o);
-    else SCHEDULE.push(Object.assign({}, o));
+    const entry = existente ? Object.assign(existente, o) : Object.assign({}, o);
+    if(!existente) SCHEDULE.push(entry);
+    // 30/07/2026 (noche) — bug real reportado: Andersson programó a Carolina Sarmiento en el horario
+    // de Karen (con "Programar cliente"), Karen canceló esa clase, y la cancelación se veía bien en
+    // "Registro de sesiones" (esa parte ya viaja por REGISTROS, que se sincroniza y reconcilia aparte)
+    // pero el Horario de Andersson la seguía mostrando SIN cancelar. Causa: una clase creada con
+    // "Programar cliente" NUNCA pasa por `expandTemplateForMonth_` (esa función solo procesa las filas
+    // que vienen de la plantilla recurrente) — así que nunca recibía el "chequeo cruzado" contra
+    // REGISTROS que ya protegía a las clases normales (`aplicarCancelacionRegistrada_`, ver arriba).
+    // Su ÚNICA fuente de verdad era `SCHEDULE_OVERRIDES` sincronizándose bien — si esa sincronización
+    // puntual fallaba o todavía no le había llegado a este dispositivo (por ejemplo, si el dispositivo
+    // de Karen se cerró antes de que su cancelación terminara de subirse), el horario se quedaba
+    // mostrando la clase como si nadie la hubiera cancelado, aunque REGISTROS ya la tuviera bien.
+    // Corrección: se aplica aquí el mismo chequeo cruzado contra REGISTROS que ya protege a las clases
+    // de la plantilla, así una clase programada a mano queda protegida por DOS caminos independientes
+    // (el override Y el registro de la cancelación), no solo uno.
+    aplicarCancelacionRegistrada_(entry);
   });
   // 28/07/2026 — bug real reportado: Andersson presionó "Actualizar horario" (como se le indicó) y el
   // masaje de Maria Teresa se siguió viendo duplicado. Causa real, distinta del primer intento de
