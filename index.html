@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.3">
+<meta name="app-version" content="2026-07-30.8">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1151,14 +1151,19 @@ const CLIENTE_NAME_ALIASES = {
 function normalizeNombre(s){
   return (s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 }
-function matchClienteId(rawText){
-  // Limpia frases de hora ("a las 6", "6:30", "11 am", números sueltos al final) para quedarnos
-  // solo con el nombre del cliente antes de intentar la coincidencia.
-  let t = normalizeNombre(rawText)
+// Limpia frases de hora ("a las 6", "6:30", "11 am", números sueltos al final) para quedarnos solo
+// con el nombre del cliente antes de intentar la coincidencia — factorizado aparte (antes vivía
+// dentro de matchClienteId) para que `esAliasCombinado_` (ver nota junto a nombreParaMostrar_) pueda
+// usar exactamente la misma limpieza sin duplicar las expresiones regulares.
+function claveClienteDesdeTexto_(rawText){
+  return normalizeNombre(rawText)
     .replace(/\ba las\s+\d{1,2}(:\d{2})?\s*(am|pm|m)?\b/g,'')
     .replace(/\b\d{1,2}:\d{2}\s*(am|pm)?\b/g,'')
     .replace(/\b\d{1,2}\s*(am|pm)?\b\s*$/g,'')
     .trim();
+}
+function matchClienteId(rawText){
+  const t = claveClienteDesdeTexto_(rawText);
   if(!t) return null;
   if(CLIENTE_NAME_ALIASES[t]) return CLIENTE_NAME_ALIASES[t];
   const exact = CLIENTES.find(c=>normalizeNombre(c.nombre)===t);
@@ -1169,6 +1174,23 @@ function matchClienteId(rawText){
   });
   if(contains) return contains.id;
   return null; // sin coincidencia — se deja el texto crudo como clienteId (clienteNombre() lo muestra tal cual)
+}
+// 30/07/2026: ¿el texto de esta celda coincide con un alias que junta a DOS clientes en un solo
+// clienteId (ver CLIENTE_NAME_ALIASES, ej. "jorge y camila")? Si sí, se guarda el texto original
+// (sin la hora) como `nombreCrudo` en la fila de SCHEDULE, para que el horario siga mostrando los dos
+// nombres tal como están en Drive — ver nombreParaMostrar_.
+function esAliasCombinado_(rawText){
+  return !!CLIENTE_NAME_ALIASES[claveClienteDesdeTexto_(rawText)];
+}
+// Igual que claveClienteDesdeTexto_, pero SIN pasar por normalizeNombre (que pone todo en minúsculas
+// y quita tildes) — para mostrar el texto tal cual se ve en Drive, solo quitándole la frase de hora.
+function limpiarTextoClienteCrudo_(rawText){
+  return (rawText||'').toString()
+    .replace(/\ba las\s+\d{1,2}(:\d{2})?\s*(am|pm|m)?\b/gi,'')
+    .replace(/\b\d{1,2}:\d{2}\s*(am|pm)?\b/gi,'')
+    .replace(/\b\d{1,2}\s*(am|pm)?\b\s*$/gi,'')
+    .replace(/\s+/g,' ')
+    .trim();
 }
 function classifyBgColorHex(hex){
   if(!hex) return null;
@@ -1251,7 +1273,11 @@ function buildScheduleFromGridData(data){
           return;
         }
         if(tLower.startsWith('disponible')){
-          nuevo.push({id:idBase, profesorId:tab.profesorId, dia:diaIdx, hora:extraerHoraDeTexto(texto, bloque.inicio), tipo:'Disponible', estado:'pendiente'});
+          // 30/07/2026: antes se descartaba el fin real de la fila (`bloque.fin`) y el bloque quedaba
+          // sin hora de fin — se guarda aquí para que, más abajo, las filas "Disponible" seguidas del
+          // mismo profesor/día se puedan unir en un solo bloque continuo (ver nota junto a
+          // `disponiblesUnidos`).
+          nuevo.push({id:idBase, profesorId:tab.profesorId, dia:diaIdx, hora:extraerHoraDeTexto(texto, bloque.inicio), horaFin:bloque.fin, tipo:'Disponible', estado:'pendiente'});
           return;
         }
         if(tLower.includes('almuerzo')){
@@ -1263,6 +1289,11 @@ function buildScheduleFromGridData(data){
         // administrador pueda completarlo manualmente.
         const clienteId = matchClienteId(texto) || texto;
         if(clienteId===texto) sinCoincidencia.push(texto);
+        // 30/07/2026: pedido explícito de Andersson — cuando el texto de la celda junta a dos
+        // clientes (ej. "Jorge y Camila") y coincide con un alias que los resuelve a UN solo
+        // clienteId (el titular, para que factura/registro sigan igual), se guarda el texto original
+        // aparte para que el horario siga mostrando los dos nombres (ver nombreParaMostrar_).
+        const nombreCrudo = esAliasCombinado_(texto) ? limpiarTextoClienteCrudo_(texto) : null;
         let tipoLabel = 'Entrenamiento adaptado Presencial', lugar = 'Domicilio cliente';
         if(categoria==='virtual'){ tipoLabel='Entrenamiento adaptado Online'; lugar='Online'; }
         else if(categoria==='masaje'){ tipoLabel='Masaje terapéutico'; lugar='Domicilio cliente'; }
@@ -1276,7 +1307,7 @@ function buildScheduleFromGridData(data){
         // la hora real de inicio (la ya extraída del texto de la celda) + 60 minutos fijos, igual que
         // en cualquier otro lugar de la app donde se define una clase (Reasignar/Programar/Agendar).
         const horaRealInicio = extraerHoraDeTexto(texto, bloque.inicio);
-        nuevo.push({id:idBase, clienteId, profesorId:tab.profesorId, dia:diaIdx, hora:horaRealInicio, horaFin:calcHoraFin(horaRealInicio, 60), tipo:tipoLabel, lugar, estado:'pendiente'});
+        nuevo.push({id:idBase, clienteId, profesorId:tab.profesorId, dia:diaIdx, hora:horaRealInicio, horaFin:calcHoraFin(horaRealInicio, 60), tipo:tipoLabel, lugar, estado:'pendiente', ...(nombreCrudo?{nombreCrudo}:{})});
       });
     }
   });
@@ -1310,7 +1341,28 @@ function buildScheduleFromGridData(data){
     vistos.push(entry);
     dedupClientes.push(entry);
   });
-  return {nuevo: [...otrosNuevo, ...dedupClientes], sinCoincidencia};
+  // 30/07/2026 — pedido explícito de Andersson: en Drive cada hora "Disponible" sigue escribiéndose en
+  // su propia celda (una fila por hora, como siempre lo ha hecho — no tiene que combinar celdas). Pero
+  // mostrarlo partido en pedazos de una hora ("6:00 Disponible", "7:00 Disponible"...) no refleja el
+  // espacio real ni deja agendar una clase que cruce esas horas (ej. 6:30 a 7:30). Aquí, apenas se arma
+  // la plantilla semanal desde la cuadrícula, se unen automáticamente las filas "Disponible" SEGUIDAS
+  // del mismo profesor y mismo día (donde el fin de una coincide exactamente con el inicio de la
+  // siguiente, sin huecos) en una sola entrada con el rango completo — así el bloque del sábado de
+  // Daniel (6 a 8, dos filas de una hora) queda como un solo "Disponible 06:00–08:00".
+  const disponiblesNuevo = otrosNuevo
+    .filter(e=>e.tipo==='Disponible')
+    .sort((a,b)=> `${a.profesorId}|${a.dia}|${a.hora}`.localeCompare(`${b.profesorId}|${b.dia}|${b.hora}`));
+  const otrosNoDisponibles = otrosNuevo.filter(e=>e.tipo!=='Disponible');
+  const disponiblesUnidos = [];
+  disponiblesNuevo.forEach(entry=>{
+    const anterior = disponiblesUnidos[disponiblesUnidos.length-1];
+    if(anterior && anterior.profesorId===entry.profesorId && anterior.dia===entry.dia && anterior.horaFin===entry.hora){
+      anterior.horaFin = entry.horaFin; // extiende el bloque anterior en vez de crear uno nuevo
+    } else {
+      disponiblesUnidos.push({...entry});
+    }
+  });
+  return {nuevo: [...otrosNoDisponibles, ...disponiblesUnidos, ...dedupClientes], sinCoincidencia};
 }
 let _lastScheduleSyncAt = null;
 // 26/07/2026: marca de versión de la plantilla publicada que YA está aplicada en este dispositivo
@@ -1903,9 +1955,11 @@ async function pullRegistrosForCliente(cliente){
   try{
     const resp = await gasCall('registros', {folderId:cliente.drive, nombre:cliente.nombre});
     if(!resp || !Array.isArray(resp.rows)) return;
+    const idsRemotos = new Set();
     resp.rows.forEach(row=>{
       if(!row || !row[0]) return;
       const remote = rowToRegistro(row, cliente.id);
+      idsRemotos.add(remote.id);
       const localIdx = REGISTROS.findIndex(r=>r.id===remote.id);
       if(localIdx<0){
         REGISTROS.push(remote);
@@ -1920,6 +1974,18 @@ async function pullRegistrosForCliente(cliente){
       // para no etiquetarlas por error como sesión "completada" en ese caché local.
       if(remote.fecha && remote.estado!=='cancelada') ensureHistorialCompletada(remote.clienteId, remote.fecha, remote.profesorId, remote.modalidad);
     });
+    // 31/07/2026 — bug real reportado por Andersson: el administrador editó/eliminó cancelaciones de
+    // Patricia que la profesora Karen había registrado — a él (que mutó REGISTROS directamente en su
+    // propio dispositivo) le salía perfecto de inmediato, pero a Karen le seguía saliendo el registro
+    // viejo/eliminado, porque este pull SOLO agregaba filas nuevas o actualizaba las que seguían
+    // existiendo — nunca quitaba de REGISTROS local las que el administrador ya había eliminado en
+    // Drive. Ahora, cualquier fila de ESTE cliente que exista localmente pero ya no venga en la
+    // respuesta de Drive se elimina también aquí, así una eliminación (o cualquier otro cambio) hecha
+    // por cualquiera, desde cualquier dispositivo, termina viéndose igual en todos los demás.
+    for(let i=REGISTROS.length-1; i>=0; i--){
+      const r = REGISTROS[i];
+      if(r.clienteId===cliente.id && !idsRemotos.has(r.id)) REGISTROS.splice(i,1);
+    }
     saveState();
     if(typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro===cliente.id && document.getElementById('tablaRegistro')){
       renderTablaRegistro();
@@ -2331,6 +2397,14 @@ function suspensionActiva(clienteId, fechaISO){
 }
 
 function clienteNombre(id){ const c = CLIENTES.find(x=>x.id===id); return c? c.nombre : id; }
+// 30/07/2026: pedido explícito de Andersson — cuando una celda del horario de Drive junta a dos
+// clientes en un solo texto (ej. "Jorge y Camila", "Jineth Prieto y Santiago Agreda") y ese texto
+// coincide con un alias conocido (CLIENTE_NAME_ALIASES, que resuelve la fila a UN solo clienteId — el
+// titular de la cuenta de cobro, para que factura/registro sigan funcionando igual que siempre), el
+// horario (calendario) debe seguir mostrando los DOS nombres tal como están en Drive, no solo el del
+// titular. `buildScheduleFromGridData` guarda ese texto original en `s.nombreCrudo` — esta función es
+// el único lugar que decide qué mostrar: el texto crudo si existe, si no el nombre oficial de siempre.
+function nombreParaMostrar_(s){ return s.nombreCrudo || clienteNombre(s.clienteId); }
 function fmtEdad(c){ return c.edad==='Pendiente' ? 'Edad pendiente' : c.edad+' años'; }
 function fmtCC(c){ return c.cc==='Pendiente' ? 'CC pendiente' : 'CC '+c.cc; }
 function profesorNombre(id){ const p = PROFESORES.find(x=>x.id===id); return p? p.nombre : id; }
@@ -2353,6 +2427,123 @@ function mesSiguiente_(mesStr){
 // visualizar por todo el mes." Cada fecha del mes se agrupa además por semana (lunes a sábado) para
 // que la vista no sea una sola lista larga de 26 días — ver la nota completa junto a
 // SCHEDULE_TEMPLATE/ensureMonthExpanded sobre cómo se genera esta expansión.
+// 30/07/2026: rediseño del módulo Horario, pedido explícito de Andersson tras dos problemas reales
+// que mostró con capturas de pantalla — (1) el horario de Karen se veía "no uniforme ni coherente"
+// porque un masaje ya agendado quedaba mostrado ENCIMA de bloques "Disponible"/"Espacio disponible"
+// que en realidad ya estaban ocupados por ese masaje, y (2) el botón "Programar cliente" solo podía
+// llenar UN bloque "Disponible" completo con su hora exacta, así que no se podía agendar una clase que
+// cruzara dos bloques seguidos (ej. Daniel el sábado: bloques de 6 y 7, clase real de 6:30 a 7:30) ni
+// meter un cliente nuevo a una hora suelta dentro de un espacio recién liberado por una cancelación.
+// Andersson pidió explícitamente NO agregar un botón nuevo — solo mejorar el mismo "Programar
+// cliente" para que permita elegir la hora libremente (como ya hace "Agendar masaje") y agendar varias
+// sesiones en distintos momentos dentro del mismo espacio libre.
+//
+// La solución: en vez de mostrar cada fila cruda de SCHEDULE tal cual, se calcula EN VIVO — cada vez
+// que se dibuja el horario, sin modificar ni guardar nada — cuál es el espacio realmente libre de cada
+// profesor: se unen los bloques "Disponible" con cancelaciones o suspensiones que queden pegadas justo
+// al lado (sin hueco) en un solo rango continuo, y se le resta cualquier sesión real ya agendada que
+// caiga dentro. "Programar cliente" ya no está atado a la fila original ni a su hora exacta — recibe
+// el rango libre calculado (que puede venir de varios bloques unidos) y dentro de él se puede elegir
+// cualquier hora de inicio/fin. Como el cálculo se repite cada vez que se renderiza, apenas se agenda
+// una sesión dentro del espacio, lo que sobra queda visible de inmediato como su propio espacio libre
+// más pequeño — así se pueden agendar varias sesiones en momentos distintos del mismo bloque, una tras
+// otra, sin ningún botón ni pantalla adicional.
+function esBloqueDisponibleVisual_(s){
+  if(!s.clienteId && s.tipo==='Disponible') return true; // bloque verde plano leído tal cual de Drive
+  if(s.estado==='cancelada') return true; // espacio liberado por una cancelación puntual
+  if(s.clienteId && s.estado!=='cancelada' && suspensionActiva(s.clienteId, s.fecha)) return true; // liberado por suspensión (vacaciones/enfermedad/otro)
+  return false;
+}
+// Texto de trazabilidad de un espacio liberado por cancelación/suspensión (igual al que ya se mostraba
+// antes en su propia tarjeta) — se conserva para que no se pierda esa información al mostrarse ahora
+// como parte de un espacio libre calculado.
+function notaEspacioLibre_(s){
+  if(s.tipo==='Disponible') return '';
+  if(s.estado==='cancelada'){
+    const meta = CANCEL_META[s.tipoCancelacion];
+    return `Antes: ${nombreParaMostrar_(s)} — ${(meta?meta.label:'cancelación').toLowerCase()}${s.fechaHoraCancelacion?' el '+new Date(s.fechaHoraCancelacion).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}${s.observacion?' · "'+s.observacion+'"':''}`;
+  }
+  const susp = suspensionActiva(s.clienteId, s.fecha);
+  if(susp){
+    const sm = SUSPENSION_META[susp.motivo];
+    return `Antes: ${nombreParaMostrar_(s)} — suspendido por ${sm.label.toLowerCase()} (${fmtFechaCorta(susp.fechaInicio)} al ${fmtFechaCorta(susp.fechaFin)})`;
+  }
+  return '';
+}
+// Recibe las filas de SCHEDULE de uno o varios profesores (normalmente ya filtradas a un solo día) y
+// devuelve `{espacios, otros}`: `espacios` son los rangos realmente libres ya calculados (unidos y con
+// lo ya ocupado restado) y `otros` son las demás filas tal cual (sesiones reales, Desplazamiento,
+// Almuerzo) que se siguen mostrando exactamente igual que antes.
+function calcularEspaciosLibres_(items){
+  const porProfesor = {};
+  items.forEach(s=>{ (porProfesor[s.profesorId] = porProfesor[s.profesorId]||[]).push(s); });
+  const resultado = [];
+  const otros = [];
+  Object.keys(porProfesor).forEach(profesorId=>{
+    const propios = porProfesor[profesorId];
+    const libresFuente = propios.filter(esBloqueDisponibleVisual_);
+    const ocupados = propios.filter(s=> s.clienteId && !esBloqueDisponibleVisual_(s));
+    propios.filter(s=>!esBloqueDisponibleVisual_(s)).forEach(s=> otros.push(s));
+    if(!libresFuente.length) return;
+    // 1) Une los bloques libres (Disponible/cancelaciones/suspensiones) que queden pegados o solapados.
+    // (`horaFinSegura`: por si algún dispositivo todavía tiene en su estado local un bloque
+    // "Disponible" sincronizado ANTES del 30/07/2026, cuando aún no se guardaba su hora de fin real —
+    // se recalcula con el valor por defecto de siempre, sin romper nada, hasta que se actualice el
+    // horario desde Drive de nuevo.)
+    const horaFinSegura = s => s.horaFin || calcHoraFin(s.hora, 60);
+    const ordenLibres = libresFuente.slice().sort((a,b)=>a.hora.localeCompare(b.hora));
+    const unidos = [];
+    ordenLibres.forEach(s=>{
+      const finS = horaFinSegura(s);
+      const anterior = unidos[unidos.length-1];
+      if(anterior && s.hora<=anterior.horaFin){
+        if(finS>anterior.horaFin) anterior.horaFin = finS;
+        anterior.fuentes.push(s);
+      } else {
+        unidos.push({profesorId, fecha:s.fecha, dia:s.dia, hora:s.hora, horaFin:finS, fuentes:[s]});
+      }
+    });
+    // 2) Resta las sesiones reales ya agendadas que caigan dentro de cada rango libre — lo que sobra
+    // (0, 1 o 2 pedazos según en dónde caiga la sesión real) queda como su propio espacio libre.
+    unidos.forEach(bloque=>{
+      const cortes = ocupados
+        .filter(o=> o.hora<bloque.horaFin && bloque.hora<o.horaFin)
+        .sort((a,b)=>a.hora.localeCompare(b.hora));
+      const piezas = [];
+      let cursor = bloque.hora;
+      cortes.forEach(o=>{
+        if(o.hora>cursor) piezas.push({hora:cursor, horaFin:o.hora});
+        if(o.horaFin>cursor) cursor = o.horaFin;
+      });
+      if(cursor<bloque.horaFin) piezas.push({hora:cursor, horaFin:bloque.horaFin});
+      piezas.forEach(p=>{
+        const fuentesPieza = bloque.fuentes.filter(f=> f.hora<p.horaFin && p.hora<f.horaFin);
+        resultado.push({
+          profesorId: bloque.profesorId, fecha: bloque.fecha, dia: bloque.dia,
+          hora: p.hora, horaFin: p.horaFin,
+          notas: fuentesPieza.map(notaEspacioLibre_).filter(Boolean),
+        });
+      });
+    });
+  });
+  return {espacios: resultado, otros};
+}
+function espacioDisponibleCardHTML(esp){
+  const tieneNotas = esp.notas && esp.notas.length;
+  return `
+  <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:14px;border:1.5px dashed var(--line);background:${tieneNotas?'var(--paper-dim)':'#D9EAD3'};">
+    <div style="width:76px;flex-shrink:0;text-align:center;">
+      <div style="font-weight:800;font-size:13.5px;color:${tieneNotas?'var(--ink-fade)':'#274E13'};">${esp.hora}${esp.horaFin?'–'+esp.horaFin:''}</div>
+    </div>
+    <div style="width:3px;align-self:stretch;border-radius:3px;background:${tieneNotas?'var(--success)':'#6AA84F'};"></div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-weight:700;font-size:14.5px;color:${tieneNotas?'var(--success)':'#274E13'};">✓ Disponible</div>
+      ${isAdminOverview()?`<div class="section-sub" style="margin-top:1px;">${profesorNombre(esp.profesorId)}</div>`:''}
+      ${tieneNotas?`<div style="margin-top:6px;font-size:12px;color:var(--ink-fade);">${esp.notas.join(' · ')}</div>`:''}
+    </div>
+    ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;border-color:var(--success);color:var(--success);" onclick="openProgramarSlotModal({profesorId:'${esp.profesorId}',fecha:'${esp.fecha}',dia:${esp.dia},boundsInicio:'${esp.hora}',boundsFin:'${esp.horaFin}'})">Programar cliente</button>`:''}
+  </div>`;
+}
 function renderHorario(){
   const el = document.getElementById('mod-horario');
   const overview = isAdminOverview();
@@ -2440,7 +2631,11 @@ function renderHorario(){
           <div class="section-sub" style="margin-bottom:12px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;font-size:11px;">Semana del ${fmtFechaCorta(semana.inicio)} al ${fmtFechaCorta(finSemana)}</div>
           <div style="display:flex;flex-direction:column;gap:20px;">
             ${semana.fechas.slice().sort().map(fechaISO=>{
-              const items = byFecha[fechaISO].sort((a,b)=>a.hora.localeCompare(b.hora));
+              const {espacios, otros} = calcularEspaciosLibres_(byFecha[fechaISO]);
+              const tarjetas = [
+                ...otros.map(s=>({hora:s.hora, html:claseCardHTML(s)})),
+                ...espacios.map(esp=>({hora:esp.hora, html:espacioDisponibleCardHTML(esp)})),
+              ].sort((a,b)=>a.hora.localeCompare(b.hora));
               const dname = DIAS[weekdayIdxFromISO(fechaISO)];
               return `
               <div>
@@ -2449,7 +2644,7 @@ function renderHorario(){
                   <span class="section-sub">${fmtFechaCorta(fechaISO)}</span>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:10px;">
-                  ${items.map(s=>claseCardHTML(s)).join('')}
+                  ${tarjetas.map(t=>t.html).join('')}
                 </div>
               </div>`;
             }).join('')}
@@ -2551,14 +2746,13 @@ function categoriaSesion(tipo){
 }
 
 function claseCardHTML(s){
-  // Bloques especiales leídos tal cual de Drive (no son una clase de un cliente): Desplazamiento, Disponible, Almuerzo.
+  // Bloques especiales leídos tal cual de Drive (no son una clase de un cliente): Desplazamiento, Almuerzo.
+  // 30/07/2026: los bloques "Disponible", los espacios liberados por cancelación y los liberados por
+  // suspensión YA NO pasan por aquí — se calculan y se dibujan aparte con `calcularEspaciosLibres_` /
+  // `espacioDisponibleCardHTML` (ver la nota completa junto a esas funciones), así que esta función
+  // solo recibe sesiones reales ya agendadas y los bloques especiales que no son espacio de clase.
   if(!s.clienteId && BLOQUE_ESPECIAL_META[s.tipo]){
     const m = BLOQUE_ESPECIAL_META[s.tipo];
-    // 25/07/2026: pedido explícito de Andersson — el admin necesita poder llenar un espacio
-    // "Disponible" del horario maestro con un cliente, igual que ya puede "Reasignar profesor" en
-    // una clase programada. Solo se ofrece en los bloques "Disponible" (no en Desplazamiento/
-    // Almuerzo, que no son espacios de clase).
-    const puedeProgramar = isAdminOverview() && m.label==='Disponible';
     return `
     <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:14px;background:${m.bg};border:1.5px dashed var(--line);">
       <div style="width:54px;flex-shrink:0;text-align:center;">
@@ -2568,51 +2762,6 @@ function claseCardHTML(s){
       <div style="flex:1;min-width:0;">
         <div style="font-weight:700;font-size:14.5px;color:${m.color};">${m.icon} ${m.label}</div>
         ${isAdminOverview()?`<div class="section-sub" style="margin-top:1px;">${profesorNombre(s.profesorId)}</div>`:''}
-      </div>
-      ${puedeProgramar?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;border-color:var(--success);color:var(--success);" data-programar="${s.id}" onclick="openProgramarSlotModal('${s.id}')">Programar cliente</button>`:''}
-    </div>`;
-  }
-  const cancelada = s.estado==='cancelada';
-  const meta = cancelada ? CANCEL_META[s.tipoCancelacion] : null;
-  if(cancelada){
-    // El espacio queda visualmente disponible para profesor y administrador; el cliente/motivo
-    // original se conserva como trazabilidad (para la cuenta de cobro) pero ya no ocupa el turno.
-    return `
-    <div class="card" data-clase="${s.id}" style="padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;border:1.5px dashed var(--line);background:var(--paper-dim);transition:box-shadow .15s;" onmouseover="this.style.boxShadow='var(--shadow-md)'" onmouseout="this.style.boxShadow='none'">
-      <div style="width:66px;flex-shrink:0;text-align:center;">
-        <div style="font-weight:800;font-size:13.5px;color:var(--ink-fade);">${s.hora}${s.horaFin?'–'+s.horaFin:''}</div>
-      </div>
-      <div style="width:3px;align-self:stretch;border-radius:3px;background:var(--success);"></div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:700;font-size:14.5px;color:var(--success);">Espacio disponible</div>
-        <div class="section-sub" style="margin-top:1px;">${s.tipo} · ${s.lugar}${isAdminOverview()?' · '+profesorNombre(s.profesorId):''}</div>
-        <div style="margin-top:6px;font-size:12px;color:var(--ink-fade);">Antes: ${clienteNombre(s.clienteId)} — ${meta.label.toLowerCase()} el ${s.fechaHoraCancelacion? new Date(s.fechaHoraCancelacion).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''} · "${s.observacion||''}"</div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-        <span class="pill" style="background:var(--success-light);color:var(--success);">Disponible</span>
-        ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;border-color:var(--success);color:var(--success);" data-programar="${s.id}" onclick="event.stopPropagation();openProgramarSlotModal('${s.id}')">Programar cliente</button>`:''}
-      </div>
-    </div>`;
-  }
-  // Si el cliente tiene una suspensión temporal activa que cubre esta fecha (vacaciones/enfermedad/otro),
-  // el espacio se muestra disponible igual que una cancelación puntual, pero sin contar contra su cupo mensual.
-  const susp = suspensionActiva(s.clienteId, s.fecha);
-  if(susp){
-    const sm = SUSPENSION_META[susp.motivo];
-    return `
-    <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:14px;border:1.5px dashed var(--line);background:var(--paper-dim);">
-      <div style="width:66px;flex-shrink:0;text-align:center;">
-        <div style="font-weight:800;font-size:13.5px;color:var(--ink-fade);">${s.hora}${s.horaFin?'–'+s.horaFin:''}</div>
-      </div>
-      <div style="width:3px;align-self:stretch;border-radius:3px;background:var(--success);"></div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:700;font-size:14.5px;color:var(--success);">Espacio disponible</div>
-        <div class="section-sub" style="margin-top:1px;">${s.tipo} · ${s.lugar}${isAdminOverview()?' · '+profesorNombre(s.profesorId):''}</div>
-        <div style="margin-top:6px;font-size:12px;color:var(--ink-fade);">Antes: ${clienteNombre(s.clienteId)} — suspendido por ${sm.label.toLowerCase()} (${fmtFechaCorta(susp.fechaInicio)} al ${fmtFechaCorta(susp.fechaFin)})${susp.observacion?' · "'+susp.observacion+'"':''}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-        <span class="pill ${sm.cls}">${sm.label}</span>
-        ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;border-color:var(--success);color:var(--success);" data-programar="${s.id}" onclick="openProgramarSlotModal('${s.id}')">Programar cliente</button>`:''}
       </div>
     </div>`;
   }
@@ -2626,7 +2775,7 @@ function claseCardHTML(s){
     </div>
     <div style="width:3px;align-self:stretch;border-radius:3px;background:${cat.bar};"></div>
     <div style="flex:1;min-width:0;">
-      <div style="font-weight:700;font-size:14.5px;">${clienteNombre(s.clienteId)}</div>
+      <div style="font-weight:700;font-size:14.5px;">${nombreParaMostrar_(s)}</div>
       <div class="section-sub" style="margin-top:1px;">${s.tipo} · ${s.lugar}${isAdminOverview()?' · '+profesorNombre(s.profesorId):''}</div>
       <div style="margin-top:6px;">
         <span class="pill" style="background:${cat.bg};color:${cat.color};font-weight:700;">${cat.label}</span>
@@ -2652,7 +2801,7 @@ function openReasignarModal(id){
     </div>
     <div class="modal-body">
       <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
-        <div style="font-weight:700;">${clienteNombre(s.clienteId)}</div>
+        <div style="font-weight:700;">${nombreParaMostrar_(s)}</div>
         <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora}${s.horaFin?'–'+s.horaFin:''} · ${s.tipo}</div>
         <div class="section-sub" style="margin-top:4px;">Profesor actual: <strong>${profesorNombre(s.profesorId)}</strong></div>
       </div>
@@ -2699,7 +2848,7 @@ function openReasignarModal(id){
     const detalleCambio = (nuevoDia!==anteriorDia || nuevaHora!==anteriorHora)
       ? ` y movida a ${DIAS[nuevoDia]} ${nuevaHora}`
       : '';
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase asignada por administrador', cuerpo:`${clienteNombre(s.clienteId)} — ${DIAS[anteriorDia]} ${anteriorHora}, reasignada de ${profesorNombre(anteriorProfesorId)} a ${profesorNombre(nuevoProfesorId)}${detalleCambio} por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase asignada por administrador', cuerpo:`${nombreParaMostrar_(s)} — ${DIAS[anteriorDia]} ${anteriorHora}, reasignada de ${profesorNombre(anteriorProfesorId)} a ${profesorNombre(nuevoProfesorId)}${detalleCambio} por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderHorario();
@@ -2735,9 +2884,17 @@ function openReasignarModal(id){
 // que no hace falta nada más. Si en el futuro se necesitara un cambio verdaderamente permanente
 // hecho desde la app (no desde Drive), habría que guardarlo en un lugar persistente (un Sheet
 // nuevo vía Apps Script) y reaplicarlo después de cada sync — no es lo que se pidió hoy.
-function openProgramarSlotModal(id){
-  const s = SCHEDULE.find(x=>x.id===id);
-  if(!s) return;
+// 30/07/2026 — reescrito por pedido explícito de Andersson: antes recibía el `id` de UN bloque
+// "Disponible" fijo y llenaba ese mismo bloque completo con su hora exacta. Ahora recibe el espacio
+// libre ya calculado (`espacio`: profesorId/fecha/dia/boundsInicio/boundsFin — que puede venir de
+// varios bloques "Disponible" seguidos unidos, ver `calcularEspaciosLibres_`) y dentro de ese rango se
+// puede elegir libremente la hora de inicio y de fin (igual que "Agendar masaje"), sin quedar atado a
+// los bordes de cada bloque original. Cada confirmación crea una sesión nueva — nunca se modifica el
+// bloque "Disponible"/la cancelación/la suspensión de origen — así que lo que sobre del espacio (antes
+// o después de la hora elegida) sigue apareciendo disponible de inmediato en la siguiente vista,
+// permitiendo agendar varias sesiones en momentos distintos del mismo espacio, una tras otra.
+function openProgramarSlotModal(espacio){
+  const {profesorId, fecha, dia, boundsInicio, boundsFin} = espacio;
   const clientesActivos = CLIENTES.filter(c=>c.activo!==false).sort((a,b)=>a.nombre.localeCompare(b.nombre));
   openModal(`
     <div class="modal-head">
@@ -2746,8 +2903,8 @@ function openProgramarSlotModal(id){
     </div>
     <div class="modal-body">
       <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
-        <div style="font-weight:700;">${profesorNombre(s.profesorId)}</div>
-        <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora}${s.horaFin?'–'+s.horaFin:''}</div>
+        <div style="font-weight:700;">${profesorNombre(profesorId)}</div>
+        <div class="section-sub">${DIAS[dia]} ${fmtFechaCorta(fecha)} · espacio libre ${boundsInicio}–${boundsFin}</div>
       </div>
       <form id="programarForm">
         <div class="field">
@@ -2758,13 +2915,22 @@ function openProgramarSlotModal(id){
           </select>
         </div>
         <div class="field">
-          <label>Modalidad <span class="req">*</span></label>
-          <select id="pModalidad" required>
-            <option value="Presencial">Presencial</option>
-            <option value="Virtual">Virtual (Online)</option>
-          </select>
+          <label>Hora inicio <span class="req">*</span></label>
+          <input type="time" id="pHoraInicio" required value="${boundsInicio}" min="${boundsInicio}" max="${boundsFin}">
         </div>
-        <small>Esta es una sesión única, solo para esta fecha (${fmtFechaCorta(s.fecha)}). Para un cambio fijo/permanente, actualiza directamente el Excel "Horarios Profesores" en Drive.</small>
+        <div class="field">
+          <label>Hora fin <span class="req">*</span></label>
+          <input type="time" id="pHoraFin" required value="${boundsFin}" min="${boundsInicio}" max="${boundsFin}">
+        </div>
+        <div class="field">
+          <label>Modalidad <span class="req">*</span></label>
+          <select id="pModalidad" required>${modalidadSelectOptionsHTML()}</select>
+        </div>
+        <div class="field">
+          <label>Lugar</label>
+          <input type="text" id="pLugar" placeholder="Ej. Domicilio cliente" value="Domicilio cliente">
+        </div>
+        <small>Debe quedar dentro del espacio disponible (${boundsInicio}–${boundsFin}) — si programas solo una parte, el resto del espacio sigue disponible para otra clase. Esta es una sesión única, solo para esta fecha (${fmtFechaCorta(fecha)}). Para un cambio fijo/permanente, actualiza directamente el Excel "Horarios Profesores" en Drive.</small>
       </form>
     </div>
     <div class="modal-foot">
@@ -2772,23 +2938,30 @@ function openProgramarSlotModal(id){
       <button class="btn btn-primary" id="btnConfirmProgramar">Programar</button>
     </div>
   `);
+  document.getElementById('pModalidad').addEventListener('change', e=>{
+    const lugarInput = document.getElementById('pLugar');
+    if(!lugarInput.dataset.editadoManual){
+      lugarInput.value = modalidadCanonica_(e.target.value).includes('Online') ? 'Online' : 'Domicilio cliente';
+    }
+  });
+  document.getElementById('pLugar').addEventListener('input', function(){ this.dataset.editadoManual = '1'; });
   document.getElementById('btnConfirmProgramar').addEventListener('click', ()=>{
     const form = document.getElementById('programarForm');
     if(!form.reportValidity()) return;
     const clienteId = document.getElementById('pCliente').value;
+    const horaInicio = document.getElementById('pHoraInicio').value;
+    const horaFin = document.getElementById('pHoraFin').value;
+    if(horaFin<=horaInicio){ toast('La hora de fin debe ser después de la hora de inicio.', 'error'); return; }
+    if(horaInicio<boundsInicio || horaFin>boundsFin){ toast(`La sesión debe quedar dentro del espacio disponible (${boundsInicio}–${boundsFin}).`, 'error'); return; }
     const modalidad = document.getElementById('pModalidad').value;
-    s.clienteId = clienteId;
-    s.tipo = modalidad==='Virtual' ? 'Entrenamiento adaptado Online' : 'Entrenamiento adaptado Presencial';
-    s.lugar = modalidad==='Virtual' ? 'Online' : 'Domicilio cliente';
-    if(!s.horaFin) s.horaFin = calcHoraFin(s.hora, 60);
-    // Limpia cualquier rastro de que este espacio venía de una cancelación — ya se está asignando
-    // a un cliente nuevo, así que "cancelada" ya no aplica a este horario.
-    s.estado = 'pendiente';
-    delete s.tipoCancelacion;
-    delete s.observacion;
-    delete s.fechaHoraCancelacion;
-    s.programadoPorAdmin = true;
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cliente programado en espacio disponible', cuerpo:`${clienteNombre(clienteId)} programado con ${profesorNombre(s.profesorId)} — ${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} ${s.hora} (sesión única), por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    const lugar = document.getElementById('pLugar').value.trim() || (modalidadCanonica_(modalidad).includes('Online') ? 'Online' : 'Domicilio cliente');
+    const nuevo = {
+      id: 'sp'+Date.now(),
+      clienteId, profesorId, dia, hora:horaInicio, horaFin, tipo: modalidad, lugar,
+      estado: 'pendiente', fecha, programadoPorAdmin: true,
+    };
+    SCHEDULE.push(nuevo);
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId, titulo:'Cliente programado en espacio disponible', cuerpo:`${clienteNombre(clienteId)} programado con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${fmtFechaCorta(fecha)} ${horaInicio}–${horaFin}, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     refrescarVistaHorarioODisponibilidad_();
@@ -2797,8 +2970,8 @@ function openProgramarSlotModal(id){
     saveState();
     // 26/07/2026: se sube al Apps Script para que se vea en cualquier otro dispositivo (el celular
     // del administrador, el del profesor) — ver el bug serio corregido junto a SCHEDULE_OVERRIDES.
-    gasGuardarScheduleOverride_(s);
-    toast(`${clienteNombre(clienteId)} programado (sesión única).`, 'success');
+    gasGuardarScheduleOverride_(nuevo);
+    toast(`${clienteNombre(clienteId)} programado (${horaInicio}–${horaFin}).`, 'success');
   });
 }
 // El botón "Programar cliente" aparece tanto en el módulo Horario (tarjetas de espacio disponible)
@@ -2891,12 +3064,27 @@ function openAgendarMasajeModal(){
   });
 }
 
+// 30/07/2026: pedido explícito de Andersson — cuando dos clientes toman la clase juntos (ej. María
+// Lourdes y Ricardo, Jorge y Camila) y cancelan, la cancelación debe salir en las cuentas de cobro de
+// AMBOS, cobrada al valor "semipersonalizado" (la mitad), no solo en la del cliente dueño de este
+// espacio del horario. Se agrega aquí el mismo buscador de "agregar cliente" que ya existe en "Nuevo
+// registro" (ver companerosField en openAddRegistroModal) — si se agrega un acompañante, la
+// cancelación se registra para los dos con la modalidad "Entrenamiento semipersonalizado" (Presencial
+// u Online, según el tipo de la clase original), que ya tiene su propio precio por cliente (la mitad,
+// ver MODALIDADES_SESION/precioPorModalidad_) — igual que ya funciona al agregar un acompañante en
+// Nuevo registro, sin necesidad de un botón aparte. No se ofrece en cancelaciones de Masaje (esa
+// modalidad no tiene una versión "semipersonalizada" definida).
+let cancelCompaneros = [];
+let cancelCompanerosSearch = '';
 function openCancelModal(id){
   const s = SCHEDULE.find(x=>x.id===id);
   if(!s) return;
   const already = s.estado==='cancelada';
   const now = new Date();
   const nowLocal = isoDate(now)+'T'+pad(now.getHours())+':'+pad(now.getMinutes());
+  const permiteAcompanante = !already && modalidadCanonica_(s.tipo)!=='Masaje';
+  cancelCompaneros = [];
+  cancelCompanerosSearch = '';
   openModal(`
     <div class="modal-head">
       <h3>${already? 'Detalle de cancelación' : 'Cancelar clase'}</h3>
@@ -2904,7 +3092,7 @@ function openCancelModal(id){
     </div>
     <div class="modal-body">
       <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
-        <div style="font-weight:700;">${clienteNombre(s.clienteId)}</div>
+        <div style="font-weight:700;">${nombreParaMostrar_(s)}</div>
         <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora} · ${s.tipo}</div>
       </div>
       ${already ? `
@@ -2932,6 +3120,17 @@ function openCancelModal(id){
             <input type="datetime-local" id="cFechaHora" value="${nowLocal}" required>
             <small>Obligatorio — queda registrado en la cuenta de cobro del cliente.</small>
           </div>
+          ${permiteAcompanante ? `
+          <div class="field" id="cCompanerosField">
+            <label>¿Sesión conjunta con otro cliente? (opcional)</label>
+            <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando la clase cancelada la tomaban dos clientes juntos (ej. María Lourdes y Ricardo, Jorge y Camila). Al agregar el acompañante, la cancelación queda registrada en las cuentas de cobro de los dos, cobrada al valor "semipersonalizado" (la mitad) en vez del valor individual completo.</div>
+            <div id="cCompanerosChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+            <div style="position:relative;">
+              <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
+              <input type="text" id="cCompaneroSearch" placeholder="Buscar cliente para agregar…" style="width:100%;padding:10px 12px 10px 34px;border:1.5px solid var(--line);border-radius:100px;">
+            </div>
+            <div id="cCompanerosResultados" style="max-height:140px;overflow-y:auto;margin-top:6px;display:flex;flex-direction:column;gap:2px;"></div>
+          </div>` : ''}
         </form>
       `}
     </div>
@@ -2947,6 +3146,37 @@ function openCancelModal(id){
       const t = TIPO_CANCELACION.find(x=>x.v===e.target.value);
       document.getElementById('cTipoDesc').textContent = t? t.desc : '';
     });
+    if(permiteAcompanante){
+      const renderCancelChips = ()=>{
+        document.getElementById('cCompanerosChips').innerHTML = cancelCompaneros.map(cid=>{
+          const c = CLIENTES.find(x=>x.id===cid);
+          return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c.nombre}<span data-remove-cancel-comp="${cid}" style="cursor:pointer;font-weight:800;">×</span></span>`;
+        }).join('') || `<span class="section-sub">Sin acompañante agregado — se cancela solo para ${nombreParaMostrar_(s)}.</span>`;
+        document.querySelectorAll('[data-remove-cancel-comp]').forEach(x=>{
+          x.addEventListener('click', ()=>{
+            cancelCompaneros = cancelCompaneros.filter(cid=>cid!==x.dataset.removeCancelComp);
+            renderCancelChips(); renderCancelResultados();
+          });
+        });
+      };
+      const renderCancelResultados = ()=>{
+        const q = cancelCompanerosSearch.trim().toLowerCase();
+        const el = document.getElementById('cCompanerosResultados');
+        if(!q){ el.innerHTML=''; return; }
+        const results = CLIENTES.filter(c=>c.id!==s.clienteId && c.activo!==false && !cancelCompaneros.includes(c.id) && c.nombre.toLowerCase().includes(q)).slice(0,8);
+        el.innerHTML = results.map(c=>`<div class="card" data-add-cancel-comp="${c.id}" style="padding:8px 10px;cursor:pointer;font-size:13px;font-weight:600;" onmouseover="this.style.background='var(--paper-dim)'" onmouseout="this.style.background='#fff'">+ ${c.nombre}</div>`).join('') || `<div class="section-sub" style="padding:6px 2px;">Sin resultados.</div>`;
+        document.querySelectorAll('[data-add-cancel-comp]').forEach(x=>{
+          x.addEventListener('click', ()=>{
+            cancelCompaneros.push(x.dataset.addCancelComp);
+            cancelCompanerosSearch='';
+            document.getElementById('cCompaneroSearch').value='';
+            renderCancelChips(); renderCancelResultados();
+          });
+        });
+      };
+      renderCancelChips();
+      document.getElementById('cCompaneroSearch').addEventListener('input', e=>{ cancelCompanerosSearch = e.target.value; renderCancelResultados(); });
+    }
     document.getElementById('btnConfirmCancel').addEventListener('click', ()=>{
       const form = document.getElementById('cancelForm');
       if(!form.reportValidity()) return;
@@ -2958,23 +3188,31 @@ function openCancelModal(id){
       // dispositivo (notificaciones, panel), pero ya no es lo que alimenta la cuenta de cobro ni
       // "Registro de sesiones" — eso viene de la línea de abajo.
       HISTORIAL.push({id:'h'+Date.now(), clienteId:s.clienteId, profesorId:s.profesorId, fecha:s.fecha, tipo:s.tipo, estado:'cancelada', tipoCancelacion:s.tipoCancelacion, observacion:s.observacion, fechaHoraCancelacion:s.fechaHoraCancelacion});
-      // 24/07/2026: la cancelación se guarda además como un registro más en REGISTROS (mismo
-      // mecanismo ya sincronizado entre todos los dispositivos que usan los registros de sesión) —
-      // así aparece en "Registro de sesiones" para cualquier profesor, en cualquier dispositivo, y
-      // la cuenta de cobro la encuentra sin importar quién la haya registrado. Antes esto solo
-      // vivía en HISTORIAL, local a este navegador — el usuario pidió explícitamente que las
-      // cancelaciones "salgan en los registros de sesión vistas por los profes y que salgan en la
-      // cuenta de cobro" (bug real, arreglado de raíz).
-      const cancelacionRegistro = {
-        id:'r'+Date.now()+'_cancel_'+s.clienteId,
-        clienteId:s.clienteId, profesorId:s.profesorId, fecha:s.fecha,
-        modalidad:'', detalle:s.observacion, estado:'cancelada',
-        tipoCancelacion:s.tipoCancelacion, fechaHoraCancelacion:s.fechaHoraCancelacion,
-        preSis:'',preSisNA:false,preDia:'',preDiaNA:false,prePpm:'',prePpmNA:false,preSpo2:'',preSpo2NA:false,
-        postSis:'',postSisNA:false,postDia:'',postDiaNA:false,postPpm:'',postPpmNA:false,postSpo2:'',postSpo2NA:false,
-      };
-      REGISTROS.push(cancelacionRegistro);
-      { const clienteDelCancel = CLIENTES.find(c=>c.id===s.clienteId); if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+      // 30/07/2026: si se agregó un acompañante, la cancelación se registra como "Entrenamiento
+      // semipersonalizado Presencial/Online" (según la modalidad de la clase original) para AMBOS
+      // clientes — así cada cuenta de cobro usa el precio semipersonalizado (la mitad) de cada
+      // cliente, en vez del valor individual completo (ver computeInvoiceValues). Sin acompañante,
+      // se mantiene el comportamiento de siempre (modalidad en blanco → se cobra el valor completo).
+      const grupoIds = (permiteAcompanante && cancelCompaneros.length) ? [s.clienteId, ...cancelCompaneros] : [s.clienteId];
+      const esConjunta = grupoIds.length>1;
+      const modalidadCancelacion = esConjunta
+        ? (modalidadCanonica_(s.tipo).includes('Online') ? 'Entrenamiento semipersonalizado Online' : 'Entrenamiento semipersonalizado Presencial')
+        : '';
+      grupoIds.forEach(cid=>{
+        const otros = grupoIds.filter(x=>x!==cid).map(x=>clienteNombre(x));
+        const cancelacionRegistro = {
+          id:'r'+Date.now()+'_cancel_'+cid,
+          clienteId:cid, profesorId:s.profesorId, fecha:s.fecha,
+          modalidad:modalidadCancelacion, detalle:s.observacion, estado:'cancelada',
+          tipoCancelacion:s.tipoCancelacion, fechaHoraCancelacion:s.fechaHoraCancelacion,
+          companeros: otros,
+          preSis:'',preSisNA:false,preDia:'',preDiaNA:false,prePpm:'',prePpmNA:false,preSpo2:'',preSpo2NA:false,
+          postSis:'',postSisNA:false,postDia:'',postDiaNA:false,postPpm:'',postPpmNA:false,postSpo2:'',postSpo2NA:false,
+        };
+        REGISTROS.push(cancelacionRegistro);
+        const clienteDelCancel = CLIENTES.find(c=>c.id===cid);
+        if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+      });
       saveState();
       // 27/07/2026: bug real reportado por Andersson — canceló la clase de Sebastian Garay del
       // miércoles y en el celular seguía saliendo como si no se hubiera cancelado. Causa: esta
@@ -2986,11 +3224,11 @@ function openCancelModal(id){
       // como SCHEDULE_OVERRIDES, que sí se reaplica sobre meses ya expandidos cada 2 minutos en
       // cualquier dispositivo (ver syncScheduleOverridesFromServer/applyScheduleOverridesToMonth_).
       gasGuardarScheduleOverride_(s);
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cancelación registrada', cuerpo:`${clienteNombre(s.clienteId)} — ${CANCEL_META[s.tipoCancelacion].label.toLowerCase()} el ${fmtFechaCorta(s.fecha)}, registrada por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+      NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cancelación registrada', cuerpo:`${grupoIds.map(clienteNombre).join(' y ')} — ${CANCEL_META[s.tipoCancelacion].label.toLowerCase()} el ${fmtFechaCorta(s.fecha)}, registrada por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
       renderNotifDrawer();
       closeModal();
       renderHorario();
-      toast('Cancelación registrada. Se reflejará en la cuenta de cobro y en Registro de sesiones.', 'success');
+      toast(esConjunta ? `Cancelación registrada para ${grupoIds.length} clientes (semipersonalizada).` : 'Cancelación registrada. Se reflejará en la cuenta de cobro y en Registro de sesiones.', 'success');
     });
   }
 }
@@ -3180,21 +3418,20 @@ function computeDisponibilidad(mesStr){
   // distinción — se asegura el mes pedido (sea el actual o uno futuro) y se lee directo por fecha.
   ensureMonthExpanded(y, monthIdx0);
   const porProfesor = {};
-  // 25/07/2026: se agrega `id` (el id de la fila expandida en SCHEDULE) a cada espacio — pedido
-  // explícito de Andersson para que el botón "Programar cliente" también pueda ofrecerse desde esta
-  // lista de Disponibilidad, además de desde las tarjetas del módulo Horario (ver renderDisponibilidad).
-  const addSlot = (id, profesorId, fechaISO, hora, horaFinS, motivo, cliente) => {
-    (porProfesor[profesorId] = porProfesor[profesorId]||[]).push({id, fecha:fechaISO, hora, horaFin:horaFinS, motivo, cliente});
+  // 30/07/2026: se reutiliza `calcularEspaciosLibres_` (la misma que ya usa el módulo Horario, ver la
+  // nota completa junto a esa función) en vez de leer cada fila cruda de SCHEDULE tal cual — así esta
+  // lista muestra exactamente los mismos espacios ya unidos/con lo ocupado restado, en vez de poder
+  // ofrecer "Programar cliente" sobre un bloque que en realidad ya está total o parcialmente ocupado.
+  const addSlot = (profesorId, fechaISO, dia, hora, horaFinS, motivo) => {
+    (porProfesor[profesorId] = porProfesor[profesorId]||[]).push({fecha:fechaISO, hora, horaFin:horaFinS, dia, motivo});
   };
   dias.forEach(fechaISO=>{
     const wi = weekdayIdxFromISO(fechaISO);
     if(wi<0) return;
-    SCHEDULE.filter(s=>s.fecha===fechaISO).forEach(s=>{
-      if(!s.clienteId && s.tipo==='Disponible'){ addSlot(s.id, s.profesorId, fechaISO, s.hora, s.horaFin, 'Bloque disponible (Drive)', null); return; }
-      if(!s.clienteId) return;
-      if(s.estado==='cancelada'){ addSlot(s.id, s.profesorId, fechaISO, s.hora, s.horaFin, CANCEL_META[s.tipoCancelacion]?.label||'Cancelada', clienteNombre(s.clienteId)); return; }
-      const susp = suspensionActiva(s.clienteId, fechaISO);
-      if(susp) addSlot(s.id, s.profesorId, fechaISO, s.hora, s.horaFin, SUSPENSION_META[susp.motivo].label, clienteNombre(s.clienteId));
+    const {espacios} = calcularEspaciosLibres_(SCHEDULE.filter(s=>s.fecha===fechaISO));
+    espacios.forEach(esp=>{
+      const motivo = (esp.notas && esp.notas.length) ? esp.notas.join(' · ') : 'Bloque disponible (Drive)';
+      addSlot(esp.profesorId, fechaISO, esp.dia, esp.hora, esp.horaFin, motivo);
     });
   });
   Object.values(porProfesor).forEach(arr=>arr.sort((a,b)=> a.fecha===b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)));
@@ -3247,9 +3484,9 @@ function renderDisponibilidad(){
                 <div class="disp-slot-info">
                   <div class="disp-slot-fecha">${fmtFechaCorta(sl.fecha)}</div>
                   <div class="disp-slot-hora">${sl.hora}${sl.horaFin?'–'+sl.horaFin:''}</div>
-                  <div class="disp-slot-motivo">${sl.motivo}${sl.cliente?' · antes: '+sl.cliente:''}</div>
+                  <div class="disp-slot-motivo">${sl.motivo}</div>
                 </div>
-                <button class="btn btn-outline btn-sm disp-slot-btn" data-programar-disp="${sl.id}">Programar cliente</button>
+                <button class="btn btn-outline btn-sm disp-slot-btn" data-programar-disp="${p.id}" data-fecha="${sl.fecha}" data-dia="${sl.dia}" data-inicio="${sl.hora}" data-fin="${sl.horaFin}">Programar cliente</button>
               </div>`).join('')}
           </div>
         </div>`;
@@ -3274,8 +3511,17 @@ function renderDisponibilidad(){
   });
   // 25/07/2026: mismo botón/flujo "Programar cliente" que ya existe en las tarjetas de espacio
   // disponible del módulo Horario (openProgramarSlotModal) — aquí solo se dispara desde esta lista.
+  // 30/07/2026: se actualiza junto con el resto del módulo Horario para pasar el espacio libre
+  // calculado (profesor/fecha/día/rango) en vez del id de un bloque fijo — ver la nota completa junto
+  // a openProgramarSlotModal.
   document.querySelectorAll('[data-programar-disp]').forEach(btn=>{
-    btn.addEventListener('click', ()=> openProgramarSlotModal(btn.dataset.programarDisp));
+    btn.addEventListener('click', ()=> openProgramarSlotModal({
+      profesorId: btn.dataset.programarDisp,
+      fecha: btn.dataset.fecha,
+      dia: Number(btn.dataset.dia),
+      boundsInicio: btn.dataset.inicio,
+      boundsFin: btn.dataset.fin,
+    }));
   });
 }
 
@@ -3327,7 +3573,6 @@ function renderRegistro(){
         ${clienteSel ? `<div class="card" style="padding:9px 14px;font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:8px;background:var(--paper-dim);border:none;">${clienteSel.nombre}<span data-clear-cliente title="Cambiar cliente" style="cursor:pointer;color:var(--ink-fade);font-weight:800;">×</span></div>` : `<div class="section-sub">Busca y selecciona un cliente para ver o registrar sus sesiones.</div>`}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnExportExcel" ${disabledAttr}><span style="width:14px;height:14px;display:inline-flex">${ICONS.download}</span>Exportar Excel</button>` : ''}
         <button class="btn btn-dark btn-sm" id="btnAddRegistro" ${disabledAttr}><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Nuevo registro</button>
         ${isAdmin ? `<button class="btn btn-primary btn-sm" id="btnGenInvoice" ${disabledAttr}><span style="width:14px;height:14px;display:inline-flex">${ICONS.file}</span>Generar cuenta de cobro</button>` : ''}
       </div>
@@ -3359,7 +3604,6 @@ function renderRegistro(){
   if(clienteSel){
     document.getElementById('btnAddRegistro').addEventListener('click', openAddRegistroModal);
     if(isAdmin){
-      document.getElementById('btnExportExcel').addEventListener('click', ()=>exportRegistroExcel(selectedClienteRegistro));
       const btnGenInvoice = document.getElementById('btnGenInvoice');
       if(btnGenInvoice) btnGenInvoice.addEventListener('click', ()=>openInvoiceModal(selectedClienteRegistro));
     }
@@ -3437,7 +3681,7 @@ function renderTablaRegistro(){
       <tr>
         <td>${i+1}</td><td>${fmtFechaCorta(r.fecha)}</td><td style="white-space:nowrap;">${profesorNombre(r.profesorId)}</td>
         <td colspan="2"><span class="pill ${meta.cls}" style="font-size:10.5px;">${meta.label}</span></td>
-        <td colspan="8" style="color:var(--ink-soft);font-size:12.5px;">${r.detalle||''}${r.fechaHoraCancelacion?` <span style="color:var(--ink-fade);">· notificada el ${new Date(r.fechaHoraCancelacion).toLocaleString('es-CO')}</span>`:''}</td>
+        <td colspan="8" style="color:var(--ink-soft);font-size:12.5px;">${r.detalle||''}${r.fechaHoraCancelacion?` <span style="color:var(--ink-fade);">· notificada el ${new Date(r.fechaHoraCancelacion).toLocaleString('es-CO')}</span>`:''}${r.companeros&&r.companeros.length?`<div style="margin-top:4px;font-size:11px;color:var(--ink-fade);">👥 Sesión conjunta con: ${r.companeros.join(', ')} (semipersonalizada)</div>`:''}</td>
         <td></td>
         <td style="white-space:nowrap;">
           ${isAdmin ? `<button class="btn btn-outline btn-sm" data-editar-cancel="${r.id}" style="margin-right:4px;">Editar</button><button class="btn btn-outline btn-sm" data-eliminar-reg="${r.id}" style="color:var(--danger);border-color:var(--danger);">Eliminar</button>` : ''}
@@ -3936,24 +4180,6 @@ function openEliminarRegistroModal(registroId){
   });
 }
 
-function exportRegistroExcel(clienteId){
-  const cliente = CLIENTES.find(c=>c.id===clienteId);
-  const rows = REGISTROS.filter(r=>r.clienteId===clienteId).sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  const cv = v => (v===undefined||v===null) ? '' : v;
-  const aoa = [
-    ['','','PRE EJERCICIO','','','','POST EJERCICIO','','','',''],
-    ['#','Fecha','PA sis','PA dia','ppm','spo2','PA sis','PA dia','ppm','spo2','Detalle'],
-    ...rows.map((r,i)=>[i+1, fmtFechaCorta(r.fecha), cv(r.preSis), cv(r.preDia), cv(r.prePpm), cv(r.preSpo2), cv(r.postSis), cv(r.postDia), cv(r.postPpm), cv(r.postSpo2), r.detalle||'']),
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!merges'] = [ {s:{r:0,c:2},e:{r:0,c:5}}, {s:{r:0,c:6},e:{r:0,c:9}} ];
-  ws['!cols'] = [{wch:4},{wch:11},{wch:8},{wch:8},{wch:6},{wch:7},{wch:8},{wch:8},{wch:6},{wch:7},{wch:40}];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Registro sesiones');
-  XLSX.writeFile(wb, `Registro_sesion_${cliente.nombre.replace(/\s+/g,'_')}.xlsx`);
-  toast('Excel descargado', 'success');
-}
-
 /* ---------- CUENTA DE COBRO ---------- */
 // Contador de número de cuenta de cobro POR CLIENTE y POR AÑO (se reinicia en 001 cada año nuevo).
 // Antes había un solo contador global para todos los clientes, lo cual generaba números que no
@@ -4123,7 +4349,10 @@ function sesionesCompletadasDelMes(clienteId, monthStr){
 function cancelacionesDelMes(clienteId, monthStr){
   return REGISTROS
     .filter(r=>r.clienteId===clienteId && r.estado==='cancelada' && r.fecha && r.fecha.startsWith(monthStr))
-    .map(r=>({fecha:r.fecha, profesorId:r.profesorId, estado:'cancelada', tipoCancelacion:r.tipoCancelacion}));
+    // 30/07/2026: se agrega `modalidad` (antes se perdía aquí) — computeInvoiceValues la necesita
+    // para saber si una cancelación es de una sesión conjunta/semipersonalizada (ver openCancelModal)
+    // y así cobrarla a la mitad en vez del valor individual completo.
+    .map(r=>({fecha:r.fecha, profesorId:r.profesorId, estado:'cancelada', tipoCancelacion:r.tipoCancelacion, modalidad:r.modalidad}));
 }
 
 // 25/07/2026: se extrajo el cálculo puro (items/total/detalle) de computeInvoice a esta función
@@ -4140,6 +4369,11 @@ function computeInvoiceValues(clienteId, monthStr){
   let anticipadaCount = 0;
   let qtyAdaptadoPresencial=0, qtyAdaptadoOnline=0, qtySemiPresencial=0, qtySemiOnline=0, qtyMasaje=0;
   let qtyAnticipadaCobrada=0, qtySobreTiempo=0, qtyProfesor=0;
+  // 30/07/2026: pedido explícito de Andersson — una cancelación de una sesión conjunta/semipersonalizada
+  // (ej. María Lourdes y Ricardo, Jorge y Camila) se cobra al valor semipersonalizado (la mitad) en vez
+  // del valor individual completo — se acumulan aparte porque su "unit" es distinto al de una
+  // cancelación normal y no se pueden sumar en el mismo renglón de la cuenta de cobro.
+  let qtyAnticipadaCobradaSemi=0, totalAnticipadaCobradaSemi=0, qtySobreTiempoSemi=0, totalSobreTiempoSemi=0;
   const detalle = [];
   entries.forEach(h=>{
     if(h.estado==='completada'){
@@ -4151,17 +4385,23 @@ function computeInvoiceValues(clienteId, monthStr){
       else if(h.modalidad==='Entrenamiento semipersonalizado Presencial') qtySemiPresencial++;
       else if(h.modalidad==='Entrenamiento semipersonalizado Online') qtySemiOnline++;
     } else if(h.estado==='cancelada'){
+      const esSemi = h.modalidad==='Entrenamiento semipersonalizado Presencial' || h.modalidad==='Entrenamiento semipersonalizado Online';
+      const precioCancelacion = esSemi ? precioPorModalidad_(cliente, h.modalidad) : cliente.tarifa;
+      const etiquetaBase = esSemi ? 'Cancelación anticipada (semipersonalizada)' : 'Cancelación anticipada presencial';
       if(h.tipoCancelacion==='anticipada'){
         anticipadaCount++;
         if(anticipadaCount===1){
-          detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:'Cancelación anticipada presencial (1ª del mes, sin costo)', costo:0});
+          detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:etiquetaBase+' (1ª del mes, sin costo)', costo:0});
         } else {
-          qtyAnticipadaCobrada++;
-          detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:'Cancelación anticipada presencial', costo:Math.round(cliente.tarifa*0.20)});
+          const costo = Math.round(precioCancelacion*0.20);
+          if(esSemi){ qtyAnticipadaCobradaSemi++; totalAnticipadaCobradaSemi += costo; }
+          else qtyAnticipadaCobrada++;
+          detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:etiquetaBase, costo});
         }
       } else if(h.tipoCancelacion==='sobre_tiempo'){
-        qtySobreTiempo++;
-        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto:'Cancelación sobre tiempo presencial', costo:cliente.tarifa});
+        const costo = precioCancelacion;
+        if(esSemi){ qtySobreTiempoSemi++; totalSobreTiempoSemi += costo; } else qtySobreTiempo++;
+        detalle.push({fecha:h.fecha, profesor:profesorNombre(h.profesorId), texto: esSemi?'Cancelación sobre tiempo (semipersonalizada)':'Cancelación sobre tiempo presencial', costo});
       } else if(h.tipoCancelacion==='profesor'){
         // 24/07/2026: cancelación responsabilidad del profesor (no del cliente) — nunca tiene costo,
         // y NO cuenta contra el cupo mensual de cancelaciones gratuitas del cliente (anticipadaCount
@@ -4186,8 +4426,10 @@ function computeInvoiceValues(clienteId, monthStr){
     {n:4, cant:qtySemiOnline, desc:'Entrenamiento semipersonalizado Online', unit:precioSemiOnline, total:qtySemiOnline*precioSemiOnline},
     {n:5, cant:qtyMasaje, desc:'Masaje', unit:precioMasaje, total:qtyMasaje*precioMasaje},
     {n:6, cant:qtyAnticipadaCobrada, desc:'Cancelación anticipada presencial', unit:Math.round(cliente.tarifa*0.20), total:qtyAnticipadaCobrada*Math.round(cliente.tarifa*0.20)},
-    {n:7, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
-    {n:8, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
+    {n:7, cant:qtyAnticipadaCobradaSemi, desc:'Cancelación anticipada (semipersonalizada)', unit: qtyAnticipadaCobradaSemi?Math.round(totalAnticipadaCobradaSemi/qtyAnticipadaCobradaSemi):0, total:totalAnticipadaCobradaSemi},
+    {n:8, cant:qtySobreTiempo, desc:'Cancelación sobre tiempo presencial', unit:cliente.tarifa, total:qtySobreTiempo*cliente.tarifa},
+    {n:9, cant:qtySobreTiempoSemi, desc:'Cancelación sobre tiempo (semipersonalizada)', unit: qtySobreTiempoSemi?Math.round(totalSobreTiempoSemi/qtySobreTiempoSemi):0, total:totalSobreTiempoSemi},
+    {n:10, cant:qtyProfesor, desc:'Cancelación por profesor (sin costo)', unit:0, total:0},
   ];
   const total = items.reduce((a,i)=>a+i.total,0);
   return {cliente, items, total, detalle};
