@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.10">
+<meta name="app-version" content="2026-07-30.11">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -103,6 +103,19 @@
    y termina renderizando TODA la app reducida/zoom-out, con una franja en blanco a la derecha
    (bug real reportado por el usuario 23/07/2026, confirmado con Playwright: window.innerWidth
    pasaba de 393px a 637px por el drawer cerrado). */
+/* 30/07/2026 (noche): -webkit-text-size-adjust/text-size-adjust en 100% — bug real reportado por
+   Andersson con captura: en un celular Android con la letra/tamaño de pantalla del sistema puesto en
+   grande, los campos de número de "Nuevo registro" (PA sistólica, PPM, etc.) y del modal "Cancelar
+   clase" se veían con una caja enorme, mucho más alta de lo normal, con un espacio en blanco gigante
+   debajo del número — el resto del texto de la app (etiquetas, botones) se veía bien, solo los
+   controles nativos del formulario (input/select) se inflaban de forma desproporcionada. Causa: sin
+   esta propiedad, algunos navegadores móviles (sobre todo Chrome/Android) recalculan el tamaño de los
+   controles nativos de formulario según el ajuste de texto grande del sistema operativo, de forma NO
+   proporcional al resto de la página — el texto de la app usa tamaños en píxeles fijos y se ve normal,
+   pero el control nativo del input igual se re-escala por su cuenta. Esto detiene ese reescalado
+   automático y deja el tamaño de los campos bajo control de la propia hoja de estilos, consistente en
+   cualquier dispositivo. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 html,body{height:100%;overflow-x:hidden;}
 body{
   font-family:var(--ff-body);
@@ -112,7 +125,7 @@ body{
   overflow-x:hidden;
 }
 button{font-family:inherit;cursor:pointer;border:none;background:none;}
-input,select,textarea{font-family:inherit;font-size:15px;}
+input,select,textarea{font-family:inherit;font-size:15px;line-height:1.3;}
 a{color:inherit;}
 ::-webkit-scrollbar{width:8px;height:8px;}
 ::-webkit-scrollbar-thumb{background:#d8d2c4;border-radius:10px;}
@@ -3144,6 +3157,7 @@ function openCancelModal(id){
         <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora} · ${s.tipo}</div>
       </div>
       ${already ? `
+        ${s.canceladoPor ? `<div class="field"><label>Cancelada por</label><div style="font-size:13.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.users}</span>${s.canceladoPor}</div></div>` : ''}
         <div class="field"><label>Tipo de cancelación</label>
           <div class="pill ${CANCEL_META[s.tipoCancelacion].cls}" style="width:fit-content;">${CANCEL_META[s.tipoCancelacion].label}</div>
         </div>
@@ -3151,6 +3165,7 @@ function openCancelModal(id){
         <div class="field"><label>Fecha y hora exacta de cancelación</label><div style="font-size:13.5px;color:var(--ink-soft);">${new Date(s.fechaHoraCancelacion).toLocaleString('es-CO')}</div></div>
       ` : `
         <form id="cancelForm">
+          <div class="field"><label>Cancelada por</label><div style="font-size:13.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.users}</span>${STATE.user.nombre}</div></div>
           <div class="field">
             <label>Tipo de cancelación <span class="req">*</span></label>
             <select id="cTipo" required>
@@ -3171,7 +3186,7 @@ function openCancelModal(id){
           ${permiteAcompanante ? `
           <div class="field" id="cCompanerosField">
             <label>¿Sesión conjunta con otro cliente? (opcional)</label>
-            <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando la clase cancelada la tomaban dos clientes juntos (ej. María Lourdes y Ricardo, Jorge y Camila). Al agregar el acompañante, la cancelación queda registrada en las cuentas de cobro de los dos, cobrada al valor "semipersonalizado" (la mitad) en vez del valor individual completo.</div>
+            <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando la clase cancelada la tomaban dos clientes juntos</div>
             <div id="cCompanerosChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
             <div style="position:relative;">
               <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
@@ -3199,7 +3214,7 @@ function openCancelModal(id){
         document.getElementById('cCompanerosChips').innerHTML = cancelCompaneros.map(cid=>{
           const c = CLIENTES.find(x=>x.id===cid);
           return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c.nombre}<span data-remove-cancel-comp="${cid}" style="cursor:pointer;font-weight:800;">×</span></span>`;
-        }).join('') || `<span class="section-sub">Sin acompañante agregado — se cancela solo para ${nombreParaMostrar_(s)}.</span>`;
+        }).join('') || `<span class="section-sub">Sin acompañante agregado — se cancela solo para uno.</span>`;
         document.querySelectorAll('[data-remove-cancel-comp]').forEach(x=>{
           x.addEventListener('click', ()=>{
             cancelCompaneros = cancelCompaneros.filter(cid=>cid!==x.dataset.removeCancelComp);
@@ -3232,6 +3247,7 @@ function openCancelModal(id){
       s.tipoCancelacion = document.getElementById('cTipo').value;
       s.observacion = document.getElementById('cObs').value.trim();
       s.fechaHoraCancelacion = document.getElementById('cFechaHora').value;
+      s.canceladoPor = STATE.user.nombre;
       // HISTORIAL.push se mantiene para que la app se sienta al día de inmediato en ESTE
       // dispositivo (notificaciones, panel), pero ya no es lo que alimenta la cuenta de cobro ni
       // "Registro de sesiones" — eso viene de la línea de abajo.
@@ -3796,6 +3812,12 @@ function ensureHistorialCompletada(clienteId, fecha, profesorId, modalidad){
 
 let registroCompaneros = []; // ids de clientes adicionales que tomaron la sesión conjunta (además del principal)
 let registroCompanerosSearch = '';
+// 30/07/2026: para vincular, AL COMPLETAR el cierre, a un acompañante que ya tenía su propio
+// registro abierto ("Falta cierre") por separado el mismo día — ver openCompletarRegistroModal.
+// Guarda ids de REGISTROS (no de clientes), porque lo que se está vinculando es un registro ya
+// existente y abierto, no un cliente nuevo sin registrar.
+let completarCompaneros = [];
+let completarCompanerosSearch = '';
 
 // Campo individual de salud (23/07/2026: se quitó la casilla "No aplica" por pedido del usuario —
 // ahora un campo simplemente en blanco significa "no se tomó ese dato", sin necesidad de marcarlo
@@ -3980,6 +4002,8 @@ function openCompletarRegistroModal(registroId){
   const r = REGISTROS.find(x=>x.id===registroId);
   const cliente = CLIENTES.find(c=>c.id===r.clienteId);
   const val = v => (v===undefined||v===null||v==='') ? '' : v;
+  completarCompaneros = [];
+  completarCompanerosSearch = '';
   openModal(`
     <div class="modal-head">
       <h3>Completar registro — fin de clase</h3>
@@ -4007,6 +4031,28 @@ function openCompletarRegistroModal(registroId){
           ${completarFieldHTML('cPostPpm','PPM','102',val(r.postPpm))}
           ${completarFieldHTML('cPostSpo2','SpO2 (%)','96',val(r.postSpo2))}
         </div>
+        <div class="field" id="cModalidadField">
+          <label>Modalidad</label>
+          <select id="cModalidad">${modalidadSelectOptionsHTML(r.modalidad)}</select>
+        </div>
+        <!-- 30/07/2026: Andersson reportó que las sesiones conjuntas (ej. Jorge y Camila, Jineth y
+        Santiago) a veces se registran cada una por separado (un "Nuevo registro" por cliente, sin
+        marcar acompañante), y al llegar el momento de completar el cierre no había forma de
+        vincularlas — cada una se cerraba sola. Aquí se puede buscar y vincular, en el momento de
+        completar, a otro cliente que TAMBIÉN tenga un registro abierto ("Falta cierre") el mismo
+        día — sus datos de inicio ya guardados se muestran de referencia y solo hace falta llenar
+        los de cierre; los dos registros quedan vinculados y se cierran juntos. -->
+        <div class="field" id="completarCompanerosField">
+          <label>¿Sesión conjunta con otro cliente? (opcional)</label>
+          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando otro cliente tomó esta misma clase y su registro también está pendiente de cierre — se vinculan y se completan los dos juntos.</div>
+          <div id="completarCompanerosChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+          <div style="position:relative;">
+            <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
+            <input type="text" id="completarCompaneroSearch" placeholder="Buscar cliente con registro pendiente de cierre el mismo día…" style="width:100%;padding:10px 12px 10px 34px;border:1.5px solid var(--line);border-radius:100px;">
+          </div>
+          <div id="completarCompanerosResultados" style="max-height:140px;overflow-y:auto;margin-top:6px;display:flex;flex-direction:column;gap:2px;"></div>
+        </div>
+        <div id="completarPersonasContainer"></div>
         <div class="field"><label>Detalle / observación</label><textarea id="cDetalle" placeholder="Tolerancia, molestias, ajustes de carga…">${r.detalle||''}</textarea></div>
       </form>
     </div>
@@ -4015,10 +4061,98 @@ function openCompletarRegistroModal(registroId){
       <button class="btn btn-primary" id="btnSaveCompletar">Clase completada</button>
     </div>
   `);
+
+  // Igual que en "Nuevo registro" (ajustarModalidadPorCompaneros_): al vincular un acompañante,
+  // sugiere automáticamente la modalidad "semipersonalizado" correspondiente; al quitarlos a todos,
+  // vuelve a sugerir "adaptado". El profesor puede cambiarlo manualmente en cualquier momento.
+  function ajustarModalidadCompletar_(){
+    const sel = document.getElementById('cModalidad');
+    if(!sel) return;
+    const aSemi = {'Entrenamiento adaptado Presencial':'Entrenamiento semipersonalizado Presencial', 'Entrenamiento adaptado Online':'Entrenamiento semipersonalizado Online'};
+    const aAdaptado = {'Entrenamiento semipersonalizado Presencial':'Entrenamiento adaptado Presencial', 'Entrenamiento semipersonalizado Online':'Entrenamiento adaptado Online'};
+    if(completarCompaneros.length>0 && aSemi[sel.value]) sel.value = aSemi[sel.value];
+    else if(completarCompaneros.length===0 && aAdaptado[sel.value]) sel.value = aAdaptado[sel.value];
+  }
+
+  function completarCompanionBlockHTML(r2){
+    const c2 = CLIENTES.find(x=>x.id===r2.clienteId);
+    return `<div class="card" data-completar-persona="${r2.id}" style="padding:12px 14px;margin-bottom:12px;border:1.5px dashed var(--line);">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:8px;">${c2.nombre}</div>
+      <div class="pill pill-teal" style="margin-bottom:6px;font-size:10.5px;">Al iniciar la clase (referencia)</div>
+      <div class="field-row">
+        <div class="field"><label>PA sistólica</label><input type="number" value="${val(r2.preSis)}" disabled style="opacity:.6;"></div>
+        <div class="field"><label>PA diastólica</label><input type="number" value="${val(r2.preDia)}" disabled style="opacity:.6;"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>PPM</label><input type="number" value="${val(r2.prePpm)}" disabled style="opacity:.6;"></div>
+        <div class="field"><label>SpO2 (%)</label><input type="number" value="${val(r2.preSpo2)}" disabled style="opacity:.6;"></div>
+      </div>
+      <div class="pill pill-accent" style="margin:8px 0 6px;font-size:10.5px;">Al finalizar la clase</div>
+      <div class="field-row">
+        ${completarFieldHTML('cPostSis_'+r2.id,'PA sistólica','128',val(r2.postSis))}
+        ${completarFieldHTML('cPostDia_'+r2.id,'PA diastólica','84',val(r2.postDia))}
+      </div>
+      <div class="field-row">
+        ${completarFieldHTML('cPostPpm_'+r2.id,'PPM','102',val(r2.postPpm))}
+        ${completarFieldHTML('cPostSpo2_'+r2.id,'SpO2 (%)','96',val(r2.postSpo2))}
+      </div>
+    </div>`;
+  }
+
+  function renderCompletarCompaneroChips(){
+    document.getElementById('completarCompanerosChips').innerHTML = completarCompaneros.map(rid=>{
+      const r2 = REGISTROS.find(x=>x.id===rid);
+      const c2 = CLIENTES.find(x=>x.id===r2.clienteId);
+      return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c2.nombre}<span data-remove-completar-comp="${rid}" style="cursor:pointer;font-weight:800;">×</span></span>`;
+    }).join('') || `<span class="section-sub">Sin acompañantes agregados — se cierra solo este registro.</span>`;
+    document.querySelectorAll('[data-remove-completar-comp]').forEach(x=>{
+      x.addEventListener('click', ()=>{
+        const rid = x.dataset.removeCompletarComp;
+        completarCompaneros = completarCompaneros.filter(id=>id!==rid);
+        document.querySelector(`[data-completar-persona="${rid}"]`)?.remove();
+        ajustarModalidadCompletar_();
+        renderCompletarCompaneroChips(); renderCompletarCompaneroResultados();
+      });
+    });
+  }
+  function renderCompletarCompaneroResultados(){
+    const q = completarCompanerosSearch.trim().toLowerCase();
+    const el = document.getElementById('completarCompanerosResultados');
+    if(!q){ el.innerHTML=''; return; }
+    // Solo clientes con OTRO registro del MISMO día que también esté "Falta cierre" (abierto) —
+    // así solo se pueden vincular sesiones que de verdad estén pendientes, no cualquier cliente.
+    const candidatos = REGISTROS.filter(x=> x.id!==r.id && x.estado==='abierto' && x.fecha===r.fecha && x.clienteId!==r.clienteId && !completarCompaneros.includes(x.id));
+    const results = candidatos.filter(x=>{
+      const c2 = CLIENTES.find(cc=>cc.id===x.clienteId);
+      return c2 && c2.nombre.toLowerCase().includes(q);
+    }).slice(0,8);
+    el.innerHTML = results.map(x=>{
+      const c2 = CLIENTES.find(cc=>cc.id===x.clienteId);
+      return `<div class="card" data-add-completar-comp="${x.id}" style="padding:8px 10px;cursor:pointer;font-size:13px;font-weight:600;" onmouseover="this.style.background='var(--paper-dim)'" onmouseout="this.style.background='#fff'">+ ${c2.nombre} <span style="font-weight:400;color:var(--ink-fade);">(pendiente de cierre)</span></div>`;
+    }).join('') || `<div class="section-sub" style="padding:6px 2px;">Sin resultados. Solo aparecen clientes con un registro del mismo día que también esté pendiente de cierre.</div>`;
+    document.querySelectorAll('[data-add-completar-comp]').forEach(x=>{
+      x.addEventListener('click', ()=>{
+        const rid = x.dataset.addCompletarComp;
+        completarCompaneros.push(rid);
+        completarCompanerosSearch='';
+        document.getElementById('completarCompaneroSearch').value='';
+        const r2 = REGISTROS.find(y=>y.id===rid);
+        document.getElementById('completarPersonasContainer').insertAdjacentHTML('beforeend', completarCompanionBlockHTML(r2));
+        ajustarModalidadCompletar_();
+        renderCompletarCompaneroChips(); renderCompletarCompaneroResultados();
+      });
+    });
+  }
+  renderCompletarCompaneroChips();
+  document.getElementById('completarCompaneroSearch').addEventListener('input', e=>{ completarCompanerosSearch = e.target.value; renderCompletarCompaneroResultados(); });
+
   document.getElementById('btnSaveCompletar').addEventListener('click', ()=>{
-    const numOrBlank = id => { const v = document.getElementById(id).value; return v===''? '' : +v; };
+    const numOrBlank = id => { const el=document.getElementById(id); if(!el) return ''; const v = el.value; return v===''? '' : +v; };
+    const detalleCompartido = document.getElementById('cDetalle').value.trim();
+    const modalidadFinal = document.getElementById('cModalidad').value;
+    r.detalle = detalleCompartido;
+    r.modalidad = modalidadFinal;
     const fields = [['cPostSis','postSis'],['cPostDia','postDia'],['cPostPpm','postPpm'],['cPostSpo2','postSpo2']];
-    r.detalle = document.getElementById('cDetalle').value.trim();
     fields.forEach(([inputId,key])=>{
       r[key+'NA'] = false;
       r[key] = numOrBlank(inputId);
@@ -4026,10 +4160,35 @@ function openCompletarRegistroModal(registroId){
     // El botón "Clase completada" cierra el registro sin condiciones — con datos de cierre o sin
     // ellos, tal como pidió el usuario (23/07/2026): "permitir que se guarde sin datos de salud".
     r.estado = 'cerrado';
+
+    // 30/07/2026: si se vinculó a uno o más acompañantes que ya tenían su propio registro abierto,
+    // se cierran junto con este, con la misma modalidad y observación, y se cruzan los nombres en
+    // "companeros" de cada uno — igual que ya funciona al agregar acompañante en "Nuevo registro" y
+    // al cancelar una clase conjunta.
+    const companionRegistros = completarCompaneros.map(rid=>REGISTROS.find(x=>x.id===rid)).filter(Boolean);
+    const todosNombres = [clienteNombre(r.clienteId), ...companionRegistros.map(r2=>clienteNombre(r2.clienteId))];
+    r.companeros = Array.from(new Set([...(r.companeros||[]), ...todosNombres.filter(n=>n!==clienteNombre(r.clienteId))]));
+    companionRegistros.forEach(r2=>{
+      const suyos = todosNombres.filter(n=>n!==clienteNombre(r2.clienteId));
+      r2.companeros = Array.from(new Set([...(r2.companeros||[]), ...suyos]));
+      r2.detalle = detalleCompartido;
+      r2.modalidad = modalidadFinal;
+      const fields2 = [['cPostSis_'+r2.id,'postSis'],['cPostDia_'+r2.id,'postDia'],['cPostPpm_'+r2.id,'postPpm'],['cPostSpo2_'+r2.id,'postSpo2']];
+      fields2.forEach(([inputId,key])=>{
+        r2[key+'NA'] = false;
+        r2[key] = numOrBlank(inputId);
+      });
+      r2.estado = 'cerrado';
+    });
+
     { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    companionRegistros.forEach(r2=>{
+      const clienteDelCompanero = CLIENTES.find(c=>c.id===r2.clienteId);
+      if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+    });
     closeModal();
     renderTablaRegistro();
-    toast('Clase marcada como completada', 'success');
+    toast(companionRegistros.length ? `Clase marcada como completada para ${1+companionRegistros.length} clientes (sesión conjunta)` : 'Clase marcada como completada', 'success');
   });
 }
 
