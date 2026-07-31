@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.15">
+<meta name="app-version" content="2026-07-30.16">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1943,12 +1943,92 @@ async function syncClienteDatosFromDrive(){
   if(actualizados>0) saveState();
   return {actualizados, advertencias};
 }
+// 31/07/2026: pedido explícito de Andersson — "acabo de actualizar la lista de precios en el drive
+// pero aun no se ve el cambio en los precios que salen de la cuenta de cobro, eso deberia estar
+// automatico". Antes los 5 precios por cliente (tarifa presencial, online, semipersonalizado
+// presencial, semipersonalizado online, masaje) se habían transcrito UNA SOLA VEZ a mano desde el
+// Google Sheet "Precios_clientes" (confirmado el 30/07/2026) — no había ninguna sincronización real.
+// Esta función sí sincroniza de verdad, leyendo esa lista vía el Apps Script (acción 'listaPrecios',
+// ver getListaPreciosAction_ en apps-script-web-app.gs) y aplicando los cambios a CLIENTES.
+// REGLA DE SEGURIDAD (dato financiero — no negociable):
+//   - El emparejamiento es por NOMBRE COMPLETO, exacto tras normalizar (acentos/mayúsculas/espacios) —
+//     nunca "contiene" ni coincidencia parcial. Si una fila de la lista no encuentra un cliente exacto
+//     (ej. "María Camila Sarmiento" en la lista vs "Camila Sarmiento" en CLIENTES), se deja tal cual y
+//     se registra como advertencia para que Andersson lo revise — jamás se adivina.
+//   - Si el nombre normalizado coincide con MÁS DE UN cliente activo, tampoco se actualiza (ambiguo).
+//   - Una celda vacía o "-" en la lista de precios NUNCA borra un valor ya existente en la app — solo
+//     se aplica cuando hay un número válido y positivo.
+//   - Se usa el mismo tipo de rango razonable por campo que ya se usaba para `tarifa` en
+//     syncClienteDatosFromDrive, para no aplicar un valor claramente mal leído.
+const LISTA_PRECIOS_CAMPOS_RANGO = [
+  ['tarifa', 10000, 250000],
+  ['tarifaOnline', 10000, 250000],
+  ['tarifaSemiPresencial', 5000, 150000],
+  ['tarifaSemiOnline', 5000, 150000],
+  ['tarifaMasaje', 20000, 400000],
+];
+let _lastListaPreciosSyncAt = null;
+async function syncListaPreciosDesdeSheet_(){
+  if(!gasConfigured()) return {actualizados:0, advertencias:[]};
+  const advertencias = [];
+  let actualizados = 0;
+  try{
+    const resp = await gasCall('listaPrecios');
+    if(!resp || !Array.isArray(resp.filas)) return {actualizados:0, advertencias:[]};
+    // Mapa nombre-normalizado -> cliente, detectando ambigüedad (más de un cliente con el mismo
+    // nombre normalizado) para nunca actualizar a ciegas en ese caso.
+    const mapa = new Map();
+    CLIENTES.forEach(c=>{
+      const key = normalizeNombre(c.nombre);
+      mapa.set(key, mapa.has(key) ? 'AMBIGUO' : c);
+    });
+    resp.filas.forEach(fila=>{
+      const key = normalizeNombre(fila.nombre||'');
+      const cliente = mapa.get(key);
+      if(!cliente){
+        advertencias.push(`Lista de precios: sin cliente que coincida con "${fila.nombre}" — revisar manualmente en la app (no se adivina).`);
+        return;
+      }
+      if(cliente==='AMBIGUO'){
+        advertencias.push(`Lista de precios: "${fila.nombre}" coincide con más de un cliente registrado — no se actualiza automáticamente.`);
+        return;
+      }
+      let cambioEste = false;
+      LISTA_PRECIOS_CAMPOS_RANGO.forEach(([campo,min,max])=>{
+        const valorNuevo = parseCostoValue(fila[campo]);
+        if(valorNuevo===null) return; // celda vacía o "-" -- nunca borra un valor existente
+        if(valorNuevo<min || valorNuevo>max){
+          advertencias.push(`Lista de precios: ${fila.nombre} — "${campo}" ($${valorNuevo}) fuera de rango razonable, se ignora.`);
+          return;
+        }
+        if(valorNuevo !== cliente[campo]){
+          advertencias.push(`Lista de precios: ${fila.nombre} — ${campo} actualizado de $${cliente[campo]||0} → $${valorNuevo}`);
+          cliente[campo] = valorNuevo;
+          cambioEste = true;
+        }
+      });
+      if(cambioEste) actualizados++;
+    });
+  }catch(e){
+    console.warn('syncListaPreciosDesdeSheet_ falló (se conservan los precios actuales):', e);
+    return {actualizados:0, advertencias:[]};
+  }
+  _lastListaPreciosSyncAt = new Date().toISOString();
+  if(advertencias.length) console.warn('syncListaPreciosDesdeSheet_ — revisar:', advertencias);
+  if(actualizados>0) saveState();
+  return {actualizados, advertencias};
+}
 // Los Excel individuales cambian con mucha menos frecuencia que el horario semanal, así que se
 // revisan cada 6 horas (no cada 15 min) para no descargar innecesariamente ~40 archivos seguido.
 let _clienteDatosSyncTimer = null;
 function _schedulePeriodicClienteDatosSync(){
   if(_clienteDatosSyncTimer) clearInterval(_clienteDatosSyncTimer);
-  _clienteDatosSyncTimer = setInterval(()=>{ syncClienteDatosFromDrive().catch(e=>console.warn('Sync periódico de clientes falló:', e)); }, 6*60*60*1000);
+  _clienteDatosSyncTimer = setInterval(()=>{
+    syncClienteDatosFromDrive().catch(e=>console.warn('Sync periódico de clientes falló:', e));
+    // 31/07/2026: misma cadencia de 6 horas para la lista de precios maestra — no cambia con
+    // frecuencia, así que no hace falta revisarla más seguido que el resto de datos del cliente.
+    syncListaPreciosDesdeSheet_().catch(e=>console.warn('Sync periódico de lista de precios falló:', e));
+  }, 6*60*60*1000);
 }
 // 26/07/2026: los cambios puntuales de horario (Programar cliente/Reasignar profesor/Agendar
 // masaje) sí necesitan revisarse seguido — a diferencia de la Anamnesis/tarifas (que casi no
@@ -2331,6 +2411,10 @@ function bootApp(startModule){
   // cualquier profesor puede hacer, no solo el administrador).
   _intentarReenvioAutomaticoDeCambiosLocales_();
   syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
+  // 31/07/2026: sync inicial de la lista de precios maestra (además del ciclo cada 6h de abajo) — así
+  // un cambio reciente en Drive (como el que Andersson acaba de hacer) se aplica apenas alguien abre
+  // la app, sin tener que esperar hasta 6 horas ni pedir un paso manual aparte.
+  syncListaPreciosDesdeSheet_().catch(e=>console.warn('Sync inicial de lista de precios falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
   // 27/07/2026: además del refresco puntual de arriba (solo el último cliente visto en ESTE
