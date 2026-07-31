@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.11">
+<meta name="app-version" content="2026-07-30.12">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3157,7 +3157,6 @@ function openCancelModal(id){
         <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora} · ${s.tipo}</div>
       </div>
       ${already ? `
-        ${s.canceladoPor ? `<div class="field"><label>Cancelada por</label><div style="font-size:13.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.users}</span>${s.canceladoPor}</div></div>` : ''}
         <div class="field"><label>Tipo de cancelación</label>
           <div class="pill ${CANCEL_META[s.tipoCancelacion].cls}" style="width:fit-content;">${CANCEL_META[s.tipoCancelacion].label}</div>
         </div>
@@ -3165,7 +3164,6 @@ function openCancelModal(id){
         <div class="field"><label>Fecha y hora exacta de cancelación</label><div style="font-size:13.5px;color:var(--ink-soft);">${new Date(s.fechaHoraCancelacion).toLocaleString('es-CO')}</div></div>
       ` : `
         <form id="cancelForm">
-          <div class="field"><label>Cancelada por</label><div style="font-size:13.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.users}</span>${STATE.user.nombre}</div></div>
           <div class="field">
             <label>Tipo de cancelación <span class="req">*</span></label>
             <select id="cTipo" required>
@@ -3247,7 +3245,6 @@ function openCancelModal(id){
       s.tipoCancelacion = document.getElementById('cTipo').value;
       s.observacion = document.getElementById('cObs').value.trim();
       s.fechaHoraCancelacion = document.getElementById('cFechaHora').value;
-      s.canceladoPor = STATE.user.nombre;
       // HISTORIAL.push se mantiene para que la app se sienta al día de inmediato en ESTE
       // dispositivo (notificaciones, panel), pero ya no es lo que alimenta la cuenta de cobro ni
       // "Registro de sesiones" — eso viene de la línea de abajo.
@@ -3872,7 +3869,7 @@ function openAddRegistroModal(){
     </div>
     <div class="modal-body">
       <div class="section-sub" style="margin-bottom:14px;">${cliente.nombre}</div>
-      <div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">Ningún dato de salud es obligatorio — guarda con solo los datos de inicio, con todos, o sin ninguno, no hay problema. Si aún no termina la clase, guarda así no más: el registro quedará marcado "Falta cierre" y podrás marcarla como completada más tarde desde la tabla (botón "Clase completada"). Si ya terminó, marca la casilla "Clase completada" de cada cliente antes de guardar.</div>
+      <div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">Ningún dato de salud es obligatorio — guarda con solo los datos de inicio, con todos, o sin ninguno, no hay problema.</div>
       <form id="regForm">
         <div class="field-row">
           <div class="field"><label>Fecha</label><input type="date" id="rFecha" value="${now}"></div>
@@ -3884,7 +3881,7 @@ function openAddRegistroModal(){
         </div>
         <div class="field" id="companerosField">
           <label>¿Sesión conjunta con otro cliente? (opcional)</label>
-          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando dos clientes toman la misma clase a la misma hora (ej. Susan Suárez y Gladys Gutiérrez los viernes). Cada cliente del grupo tiene su propio bloque de datos abajo, con su propio registro individual — así queda claro cuál es el de cada uno. Recuerda elegir la modalidad "Entrenamiento semipersonalizado" arriba para que a cada uno se le cobre el valor correcto.</div>
+          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando dos clientes toman la misma clase a la misma hora</div>
           <div id="companerosChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
           <div style="position:relative;">
             <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
@@ -4044,7 +4041,7 @@ function openCompletarRegistroModal(registroId){
         los de cierre; los dos registros quedan vinculados y se cierran juntos. -->
         <div class="field" id="completarCompanerosField">
           <label>¿Sesión conjunta con otro cliente? (opcional)</label>
-          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando otro cliente tomó esta misma clase y su registro también está pendiente de cierre — se vinculan y se completan los dos juntos.</div>
+          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando otro cliente tomó esta misma clase y también está pendiente de cierre</div>
           <div id="completarCompanerosChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
           <div style="position:relative;">
             <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
