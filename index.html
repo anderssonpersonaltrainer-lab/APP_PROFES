@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.16">
+<meta name="app-version" content="2026-07-30.17">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1055,7 +1055,17 @@ function clearSession(){
 async function gasCall(action, params, body){
   if(!gasConfigured()) return null;
   try{
-    const qs = new URLSearchParams(Object.assign({action, token:GAS_API_TOKEN}, params||{})).toString();
+    // 01/08/2026: igual que ya pasó con version.json (ver la nota completa arriba, al inicio de
+    // <head>) — un GET sin 'cache:no-store' puede quedar servido desde la caché del navegador/celular
+    // en vez de ir siempre a la red, sobre todo en apps agregadas a la pantalla de inicio. Esto se
+    // detectó real: Andersson corrigió y volvió a publicar apps-script-web-app.gs, pero la app seguía
+    // mostrando datos viejos incluso después de cerrar sesión y volver a entrar — la caché por URL
+    // completa (mismos folderId/nombre/token de siempre) es la explicación más probable. Se agrega
+    // 'cache:no-store' Y un parámetro '_cb' único en cada llamada GET (igual que en version.json) para
+    // que el navegador nunca reutilice una respuesta guardada — las llamadas POST no lo necesitan,
+    // los navegadores no cachean POST por defecto.
+    const extraParams = body ? (params||{}) : Object.assign({}, params||{}, {_cb: Date.now()});
+    const qs = new URLSearchParams(Object.assign({action, token:GAS_API_TOKEN}, extraParams)).toString();
     const url = `${GAS_WEBAPP_URL}?${qs}`;
     const opts = body ? {
       method:'POST',
@@ -1064,7 +1074,7 @@ async function gasCall(action, params, body){
       // puede leer el cuerpo crudo y parsearlo como JSON de su lado.
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(Object.assign({action}, body)),
-    } : { method:'GET' };
+    } : { method:'GET', cache:'no-store' };
     const res = await fetch(url, opts);
     if(!res.ok) return null;
     const data = await res.json();
