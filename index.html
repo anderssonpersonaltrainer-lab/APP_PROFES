@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-07-30.12">
+<meta name="app-version" content="2026-07-30.13">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2020,6 +2020,11 @@ async function pullRegistrosForCliente(cliente){
     resp.rows.forEach(row=>{
       if(!row || !row[0]) return;
       const remote = rowToRegistro(row, cliente.id);
+      // 31/07/2026: cualquier fila que venga de Drive, por definición, ya está sincronizada — se
+      // marca aquí para que la protección de abajo (no borrar filas que todavía no se han
+      // confirmado subidas) funcione también para las filas que YA estaban guardadas desde antes
+      // de este cambio (se "sanan" solas la primera vez que se vuelven a traer de Drive).
+      remote.sincronizadoServidor = true;
       idsRemotos.add(remote.id);
       const localIdx = REGISTROS.findIndex(r=>r.id===remote.id);
       if(localIdx<0){
@@ -2043,9 +2048,17 @@ async function pullRegistrosForCliente(cliente){
     // Drive. Ahora, cualquier fila de ESTE cliente que exista localmente pero ya no venga en la
     // respuesta de Drive se elimina también aquí, así una eliminación (o cualquier otro cambio) hecha
     // por cualquiera, desde cualquier dispositivo, termina viéndose igual en todos los demás.
+    // 31/07/2026 (noche): protección adicional — solo se borra una fila local si YA se había
+    // confirmado subida a Drive en algún momento (`sincronizadoServidor`, ver appendRegistroToSheet/
+    // updateRegistroRowInSheet más abajo). Sin esto, una sesión recién creada podía desaparecer sola
+    // si este "pull" corría (el sync automático cada 15 min, o al volver a entrar a este cliente)
+    // justo en el ratito entre guardarla localmente y que termine de subirse a Drive — más probable
+    // todavía la primera vez que se registra un cliente nuevo con cuenta separada (ej. Camila
+    // Sarmiento, Santiago Agreda), porque esa primera subida además tiene que CREAR el Sheet
+    // "Registro_[Cliente]" en Drive, lo que tarda más que agregar una fila a uno que ya existe.
     for(let i=REGISTROS.length-1; i>=0; i--){
       const r = REGISTROS[i];
-      if(r.clienteId===cliente.id && !idsRemotos.has(r.id)) REGISTROS.splice(i,1);
+      if(r.clienteId===cliente.id && !idsRemotos.has(r.id) && r.sincronizadoServidor) REGISTROS.splice(i,1);
     }
     saveState();
     if(typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro===cliente.id && document.getElementById('tablaRegistro')){
@@ -3272,7 +3285,7 @@ function openCancelModal(id){
         };
         REGISTROS.push(cancelacionRegistro);
         const clienteDelCancel = CLIENTES.find(c=>c.id===cid);
-        if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+        if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).then(()=>{ cancelacionRegistro.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
       });
       saveState();
       // 27/07/2026: bug real reportado por Andersson — canceló la clase de Sebastian Garay del
@@ -3977,7 +3990,7 @@ function openAddRegistroModal(){
       REGISTROS.push(nuevoRegistro);
       ensureHistorialCompletada(cid, fecha, STATE.user.id, modalidad);
       const clienteDelRegistro = CLIENTES.find(c=>c.id===cid);
-      if(clienteDelRegistro) appendRegistroToSheet(clienteDelRegistro, nuevoRegistro).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+      if(clienteDelRegistro) appendRegistroToSheet(clienteDelRegistro, nuevoRegistro).then(()=>{ nuevoRegistro.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
     });
     closeModal();
     renderTablaRegistro();
@@ -4178,10 +4191,10 @@ function openCompletarRegistroModal(registroId){
       r2.estado = 'cerrado';
     });
 
-    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
     companionRegistros.forEach(r2=>{
       const clienteDelCompanero = CLIENTES.find(c=>c.id===r2.clienteId);
-      if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+      if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).then(()=>{ r2.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
     });
     closeModal();
     renderTablaRegistro();
@@ -4260,7 +4273,7 @@ function openEditarRegistroModal(registroId){
       const h = HISTORIAL.find(x=>x.clienteId===r.clienteId && x.fecha===fechaAnterior && x.estado==='completada');
       if(h) h.fecha = nuevaFecha;
     }
-    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
     closeModal();
     renderTablaRegistro();
     toast('Registro actualizado', 'success');
@@ -4336,7 +4349,7 @@ function openEditarCancelacionModal(registroId){
       // este dispositivo hasta que algún otro reexpandiera el mes de cero.
       gasGuardarScheduleOverride_(sSched);
     }
-    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
     saveState();
     closeModal();
     renderTablaRegistro();
