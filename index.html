@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-02.1">
+<meta name="app-version" content="2026-08-02.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1996,6 +1996,117 @@ async function syncListaPreciosDesdeSheet_(){
   if(actualizados>0) saveState();
   return {actualizados, advertencias};
 }
+
+// 02/08/2026: pedido explícito de Andersson — la base de usuarios (nombre/cédula/dirección/teléfono/
+// estado) se sincroniza igual que precios y Anamnesis, y ADEMÁS detecta clientes NUEVOS: cruza cada
+// fila del Sheet contra las carpetas reales dentro de "Usuarios" en Drive (acción 'carpetasUsuarios',
+// ver getCarpetasUsuariosAction_) — si una fila no tiene cliente existente en la app pero SÍ hay una
+// carpeta libre (sin usar por ningún cliente ya existente) con nombre coincidente exacto tras
+// normalizar, sin ambigüedad, crea el cliente automáticamente: nombre tomado del título REAL de la
+// carpeta (la fuente de verdad para nombres es siempre la carpeta de Drive, nunca un formulario o
+// sheet — mismo criterio ya establecido en toda la app), cédula/dirección/teléfono/estado del sheet,
+// carpeta ya vinculada. Las tarifas quedan pendientes hasta la sincronización de precios (se ejecuta
+// justo después, en el mismo ciclo — ver _schedulePeriodicClienteDatosSync). Nunca inventa: si el
+// nombre no coincide con ninguna carpeta libre, o coincide con más de una, se deja como advertencia
+// para que Andersson lo revise a mano — igual criterio de seguridad que ya usa toda la app.
+async function syncBaseClientesDesdeSheet_(){
+  if(!gasConfigured()) return {actualizados:0, creados:0, advertencias:[]};
+  const advertencias = [];
+  let actualizados = 0, creados = 0;
+  try{
+    const [respBase, respCarpetas] = await Promise.all([gasCall('baseClientes'), gasCall('carpetasUsuarios')]);
+    if(!respBase || !Array.isArray(respBase.filas)) return {actualizados:0, creados:0, advertencias:[]};
+    const carpetas = (respCarpetas && Array.isArray(respCarpetas.carpetas)) ? respCarpetas.carpetas : [];
+
+    const mapaClientes = new Map();
+    CLIENTES.forEach(c=>{
+      const key = normalizeNombre(c.nombre);
+      mapaClientes.set(key, mapaClientes.has(key) ? 'AMBIGUO' : c);
+    });
+    // Carpetas ya vinculadas a un cliente existente (por id real de carpeta, no por nombre) se
+    // excluyen de los candidatos a "cliente nuevo" — así una carpeta ya usada nunca se ofrece por
+    // error para crear un cliente distinto (ej. las carpetas compartidas por parejas, Jorge/Camila).
+    const driveIdsYaUsados = new Set(CLIENTES.map(c=>c.drive).filter(Boolean));
+    const mapaCarpetas = new Map();
+    carpetas.forEach(f=>{
+      if(driveIdsYaUsados.has(f.id)) return;
+      const key = normalizeNombre(f.nombre);
+      mapaCarpetas.set(key, mapaCarpetas.has(key) ? 'AMBIGUO' : f);
+    });
+
+    respBase.filas.forEach(fila=>{
+      const key = normalizeNombre(fila.nombre||'');
+      const cliente = mapaClientes.get(key);
+      const estadoTexto = (fila.estado||'').trim().toLowerCase();
+      const estadoActivo = estadoTexto==='activo' ? true : estadoTexto==='inactivo' ? false : null;
+
+      if(cliente && cliente!=='AMBIGUO'){
+        // Cliente ya existe — actualiza dirección/teléfono/cédula (nunca borra un dato real con
+        // vacío/"Pendiente") y estado (esto es lo que resuelve reactivar un cliente inactivo solo).
+        let cambioEste = false;
+        [['direccion','direccion'],['telefono','telefono'],['cc','cc']].forEach(([campoFila,campoCliente])=>{
+          const valorNuevo = (fila[campoFila]||'').trim();
+          if(!valorNuevo || valorNuevo.toLowerCase()==='pendiente') return;
+          if(valorNuevo !== cliente[campoCliente]){
+            advertencias.push(`Base de usuarios: ${fila.nombre} — ${campoCliente} actualizado de "${cliente[campoCliente]||''}" → "${valorNuevo}"`);
+            cliente[campoCliente] = valorNuevo;
+            cambioEste = true;
+          }
+        });
+        if(estadoActivo!==null && cliente.activo!==estadoActivo){
+          advertencias.push(`Base de usuarios: ${fila.nombre} — estado cambiado a ${estadoActivo?'Activo':'Inactivo'}`);
+          cliente.activo = estadoActivo;
+          cambioEste = true;
+        }
+        if(cambioEste) actualizados++;
+        return;
+      }
+      if(cliente==='AMBIGUO'){
+        advertencias.push(`Base de usuarios: "${fila.nombre}" coincide con más de un cliente registrado — no se actualiza automáticamente.`);
+        return;
+      }
+
+      // No hay cliente existente con este nombre — candidato a cliente NUEVO. Busca su carpeta real.
+      const carpeta = mapaCarpetas.get(key);
+      if(!carpeta){
+        advertencias.push(`Base de usuarios: "${fila.nombre}" no tiene cliente ni carpeta de Drive libre que coincida — revisar manualmente (¿falta crear la carpeta, o el nombre no coincide exacto?).`);
+        return;
+      }
+      if(carpeta==='AMBIGUO'){
+        advertencias.push(`Base de usuarios: "${fila.nombre}" coincide con más de una carpeta de Drive sin usar — no se crea automáticamente.`);
+        return;
+      }
+      // Id derivado del ID real de la carpeta de Drive (nunca un contador secuencial) — así, si dos
+      // dispositivos distintos detectan el mismo cliente nuevo por su cuenta, ambos calculan
+      // exactamente el mismo id, sin depender de orden ni de sincronizarse entre sí.
+      const nuevoId = 'd' + carpeta.id.replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
+      if(CLIENTES.some(c=>c.id===nuevoId)) return; // ya se creó en una pasada anterior
+      const nuevoCliente = {
+        id: nuevoId,
+        nombre: carpeta.nombre.replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim(),
+        cc: fila.cc || 'Pendiente',
+        edad: 'Pendiente',
+        direccion: fila.direccion || 'Pendiente',
+        telefono: fila.telefono || 'Pendiente',
+        diagnostico: NO_ANAMNESIS,
+        tarifa: null, tarifaOnline: null, tarifaSemiPresencial: null, tarifaSemiOnline: null, tarifaMasaje: null,
+        activo: estadoActivo!==false,
+        drive: carpeta.id,
+      };
+      CLIENTES.push(nuevoCliente);
+      creados++;
+      advertencias.push(`Cliente nuevo detectado y agregado automáticamente: ${nuevoCliente.nombre} (carpeta "${carpeta.nombre}").`);
+      NOTIFICACIONES.unshift({id:'n'+Date.now()+'_'+nuevoId, titulo:'Cliente nuevo detectado', cuerpo:`${nuevoCliente.nombre} se agregó automáticamente desde la base de usuarios y su carpeta en Drive.`, hora:'Ahora', leido:false});
+    });
+  }catch(e){
+    console.warn('syncBaseClientesDesdeSheet_ falló (se conserva lo que ya había):', e);
+    return {actualizados:0, creados:0, advertencias:[]};
+  }
+  if(advertencias.length) console.warn('syncBaseClientesDesdeSheet_ — revisar:', advertencias);
+  if(actualizados>0 || creados>0) saveState();
+  return {actualizados, creados, advertencias};
+}
+
 // Los Excel individuales cambian con mucha menos frecuencia que el horario semanal, así que se
 // revisan cada 6 horas (no cada 15 min) para no descargar innecesariamente ~40 archivos seguido.
 let _clienteDatosSyncTimer = null;
@@ -2005,7 +2116,12 @@ function _schedulePeriodicClienteDatosSync(){
     syncClienteDatosFromDrive().catch(e=>console.warn('Sync periódico de clientes falló:', e));
     // 31/07/2026: misma cadencia de 6 horas para la lista de precios maestra — no cambia con
     // frecuencia, así que no hace falta revisarla más seguido que el resto de datos del cliente.
-    syncListaPreciosDesdeSheet_().catch(e=>console.warn('Sync periódico de lista de precios falló:', e));
+    // 02/08/2026: la base de usuarios (y la detección de clientes nuevos) va ENCADENADA antes de la
+    // lista de precios (con .then, no en paralelo) — así, si esta pasada crea un cliente nuevo, ya
+    // existe en CLIENTES para cuando corre el cruce de precios justo después, en el mismo ciclo.
+    syncBaseClientesDesdeSheet_()
+      .then(()=>syncListaPreciosDesdeSheet_())
+      .catch(e=>console.warn('Sync periódico de base de usuarios/lista de precios falló:', e));
   }, 6*60*60*1000);
 }
 // 26/07/2026: los cambios puntuales de horario (Programar cliente/Reasignar profesor/Agendar
@@ -2392,7 +2508,12 @@ function bootApp(startModule){
   // 31/07/2026: sync inicial de la lista de precios maestra (además del ciclo cada 6h de abajo) — así
   // un cambio reciente en Drive (como el que Andersson acaba de hacer) se aplica apenas alguien abre
   // la app, sin tener que esperar hasta 6 horas ni pedir un paso manual aparte.
-  syncListaPreciosDesdeSheet_().catch(e=>console.warn('Sync inicial de lista de precios falló:', e));
+  // 02/08/2026: igual que en el ciclo periódico, la base de usuarios (con detección de clientes
+  // nuevos) va encadenada antes de la lista de precios, para que un cliente recién creado ya reciba
+  // su tarifa en esta misma pasada inicial.
+  syncBaseClientesDesdeSheet_()
+    .then(()=>syncListaPreciosDesdeSheet_())
+    .catch(e=>console.warn('Sync inicial de base de usuarios/lista de precios falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
   // 27/07/2026: además del refresco puntual de arriba (solo el último cliente visto en ESTE
