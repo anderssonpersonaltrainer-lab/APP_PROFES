@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-02.3">
+<meta name="app-version" content="2026-08-02.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2106,7 +2106,7 @@ async function syncBaseClientesDesdeSheet_(){
       CLIENTES.push(nuevoCliente);
       creados++;
       advertencias.push(`Cliente nuevo detectado y agregado automáticamente: ${nuevoCliente.nombre} (carpeta "${carpeta.nombre}").`);
-      NOTIFICACIONES.unshift({id:'n'+Date.now()+'_'+nuevoId, titulo:'Cliente nuevo detectado', cuerpo:`${nuevoCliente.nombre} se agregó automáticamente desde la base de usuarios y su carpeta en Drive.`, hora:'Ahora', leido:false});
+      NOTIFICACIONES.unshift({id:'n'+Date.now()+'_'+nuevoId, adminOnly:true, titulo:'Cliente nuevo detectado', cuerpo:`${nuevoCliente.nombre} se agregó automáticamente desde la base de usuarios y su carpeta en Drive.`, hora:'Ahora', leido:false});
     });
   }catch(e){
     console.warn('syncBaseClientesDesdeSheet_ falló (se conserva lo que ya había):', e);
@@ -2616,18 +2616,23 @@ function closeAllDrawers(){
 // completa); un profesor solo ve las suyas (`profesorId` coincide con su propio id) más las
 // notificaciones generales que no le pertenecen a un profesor en particular (ej. "Cuenta de cobro
 // guardada en Drive", que ya se veía igual antes de este cambio y no depende de esta función).
+// 02/08/2026: pedido explícito de Andersson — a los profesores les aparecían TODAS las
+// notificaciones (incluidas las del administrador y las de otros profesores), no solo las suyas.
+// La regla por profesorId ya existía, pero varias notificaciones nunca lo traían (quedaban
+// "generales" por accidente, no a propósito) — se corrigió cada punto de creación (ver
+// NOTIFICACIONES.unshift en el resto del archivo) para que siempre traiga el profesorId correcto
+// cuando aplica, o `adminOnly:true` cuando es un evento puramente administrativo (cuenta de cobro
+// guardada, cliente nuevo detectado, documentación recibida, cliente cerrado) que no le aporta nada
+// a ningún profesor puntual — el administrador sigue viendo absolutamente todo, sin excepción.
 function notificacionesVisibles_(){
   if(STATE.user.rol==='admin') return NOTIFICACIONES;
-  return NOTIFICACIONES.filter(n=>!n.profesorId || n.profesorId===STATE.user.id);
+  return NOTIFICACIONES.filter(n=>!n.adminOnly && (!n.profesorId || n.profesorId===STATE.user.id));
 }
 function renderNotifDrawer(){
   const visibles = notificacionesVisibles_();
   const unread = visibles.filter(n=>!n.leido).length;
   document.getElementById('notifDot').style.display = unread>0 ? 'block' : 'none';
   document.getElementById('notifList').innerHTML = `
-    <div style="padding:10px 10px 14px;">
-      <button class="btn btn-teal btn-sm btn-block" id="btnSyncDrive"><span style="width:15px;height:15px;display:inline-flex">${ICONS.sync}</span>Sincronizar horario desde Drive</button>
-    </div>
     ${visibles.map(n=>`
     <div class="notif-item ${n.leido?'read':''}" data-id="${n.id}">
       <span class="dot"></span>
@@ -2638,14 +2643,6 @@ function renderNotifDrawer(){
       </div>
     </div>`).join('')}
   `;
-  document.getElementById('btnSyncDrive').addEventListener('click', ()=>{
-    toast('Sincronizando cambios de horario desde Drive…');
-    setTimeout(()=>{
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Horario actualizado desde Drive', cuerpo:'Se detectaron y aplicaron los últimos cambios de programación.', hora:'Ahora', leido:false});
-      renderNotifDrawer();
-      toast('Horario sincronizado', 'success');
-    }, 900);
-  });
   document.querySelectorAll('.notif-item').forEach(it=>{
     it.addEventListener('click', ()=>{
       const n = NOTIFICACIONES.find(x=>x.id===it.dataset.id);
@@ -4866,7 +4863,7 @@ function openEliminarRegistroModal(registroId){
     const hIdx = HISTORIAL.findIndex(x=>x.clienteId===r.clienteId && x.fecha===r.fecha && x.estado==='completada');
     if(hIdx>=0) HISTORIAL.splice(hIdx,1);
     if(cliente) deleteRegistroRowInSheet(cliente, registroId).catch(e=>console.warn('Drive sync falló (se eliminó localmente):', e));
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Registro eliminado', cuerpo:`Se eliminó el registro de ${cliente.nombre} del ${fmtFechaCorta(r.fecha)}, junto con su sesión en la cuenta de cobro, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:r.profesorId, titulo:'Registro eliminado', cuerpo:`Se eliminó el registro de ${cliente.nombre} del ${fmtFechaCorta(r.fecha)}, junto con su sesión en la cuenta de cobro, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderTablaRegistro();
@@ -5575,7 +5572,7 @@ async function buildInvoicePDFBlob(inv){
 function simulateGuardarEnDrive(inv, filename){
   const anio = STATE.invoiceMonth.split('-')[0];
   const ruta = `Drive / ${inv.cliente.nombre} / ${anio} / ${filename}`;
-  NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó (simulado) en: ${ruta}`, hora:'Ahora', leido:false});
+  NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó (simulado) en: ${ruta}`, hora:'Ahora', leido:false});
   renderNotifDrawer();
 }
 
@@ -5623,7 +5620,7 @@ async function guardarCuentaEnDriveConAviso(inv, filename, blob){
     const ok = await guardarPDFEnDriveReal(inv, filename, blob);
     if(ok){
       const anio = STATE.invoiceMonth.split('-')[0];
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó en: Drive / ${inv.cliente.nombre} / ${anio} / ${filename}`, hora:'Ahora', leido:false});
+      NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó en: Drive / ${inv.cliente.nombre} / ${anio} / ${filename}`, hora:'Ahora', leido:false});
       renderNotifDrawer();
       return true;
     }
@@ -5863,7 +5860,7 @@ function renderDocs(){
       const archivo = chosen[tipo];
       if(!archivo){ toast('Elige un archivo primero', 'error'); return; }
       DOCS_ENVIADOS.push({id:'d'+Date.now()+Math.random(), profesorId:STATE.user.id, tipo, archivo, fecha:isoDate(new Date()), estado:'Enviado'});
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Documentación del mes recibida', cuerpo:`${STATE.user.nombre} envió: ${tipo}.`, hora:'Ahora', leido:false});
+      NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Documentación del mes recibida', cuerpo:`${STATE.user.nombre} envió: ${tipo}.`, hora:'Ahora', leido:false});
       renderNotifDrawer();
       renderDocs();
       saveState();
@@ -6232,7 +6229,7 @@ function cerrarClienteDefinitivo(clienteId, motivo){
   const eliminadas = SCHEDULE_TEMPLATE.filter(s=>s.clienteId===clienteId).length;
   for(let i=SCHEDULE_TEMPLATE.length-1;i>=0;i--){ if(SCHEDULE_TEMPLATE[i].clienteId===clienteId) SCHEDULE_TEMPLATE.splice(i,1); }
   for(let i=SCHEDULE.length-1;i>=0;i--){ if(SCHEDULE[i].clienteId===clienteId) SCHEDULE.splice(i,1); }
-  NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Cliente cerrado definitivamente', cuerpo:`${c.nombre} fue marcado como cliente antiguo por ${STATE.user.nombre}${motivo?': "'+motivo+'"':''}. Se retiraron ${eliminadas} clase${eliminadas===1?'':'s'} del horario recurrente.`, hora:'Ahora', leido:false});
+  NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Cliente cerrado definitivamente', cuerpo:`${c.nombre} fue marcado como cliente antiguo por ${STATE.user.nombre}${motivo?': "'+motivo+'"':''}. Se retiraron ${eliminadas} clase${eliminadas===1?'':'s'} del horario recurrente.`, hora:'Ahora', leido:false});
   renderNotifDrawer();
   closeModal();
   if(STATE.module==='horario') renderHorario();
