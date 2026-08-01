@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-01.4">
+<meta name="app-version" content="2026-08-01.5">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -371,19 +371,15 @@ tr:last-child td{border-bottom:none;}
   .kpi-row .kpi-card .section-sub{font-size:10px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;}
   .kpi-row .kpi-card > div[style*="font-size:24px"]{font-size:18px !important;}
 }
-/* Filas de Disponibilidad: en celular se apilan (info arriba, botón abajo a lo ancho completo)
-   para que "Programar cliente" nunca quede recortado por el borde de la pantalla. */
 .disp-slot{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;}
 .disp-slot-info{flex:1;min-width:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
 .disp-slot-fecha{width:130px;flex-shrink:0;font-size:12.5px;font-weight:700;}
 .disp-slot-hora{width:100px;flex-shrink:0;font-size:12.5px;font-weight:700;color:var(--success);}
 .disp-slot-motivo{flex:1;min-width:120px;font-size:12.5px;color:var(--ink-fade);}
-.disp-slot-btn{padding:4px 10px;font-size:11.5px;flex-shrink:0;}
 @media (max-width:600px){
   .disp-slot{flex-direction:column;align-items:stretch;gap:6px;}
   .disp-slot-info{flex-direction:column;align-items:flex-start;gap:2px;}
   .disp-slot-fecha,.disp-slot-hora{width:auto;}
-  .disp-slot-btn{width:100%;padding:8px 10px;font-size:12.5px;}
 }
 /* Tabla de Sesiones: muchas columnas (datos de salud de inicio/fin) hacían que cada fila quedara
    muy alta y difícil de manejar, sobre todo en celular. Se reduce el padding y el tamaño de fuente
@@ -3105,7 +3101,7 @@ function openProgramarSlotModal(espacio){
         </div>
         <div class="field">
           <label>Tipo de sesión <span class="req">*</span></label>
-          <select id="pModalidad" required>${modalidadSelectOptionsHTML(null, false)}</select>
+          <select id="pModalidad" required>${modalidadSelectOptionsHTML()}</select>
         </div>
         <div class="field" id="pCompanerosField">
           <label>¿Sesión conjunta con otro cliente? (opcional)</label>
@@ -3614,6 +3610,68 @@ function computeDisponibilidad(mesStr){
   return {porProfesor, inicio, fin, esMesActual};
 }
 
+// 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — reemplaza el botón "Simular
+// envío por correo" (que no hacía nada real) por un archivo Excel real que se puede compartir por
+// WhatsApp o correo. Se genera CSV (se abre directo en Excel, sin necesitar ninguna librería) con
+// BOM al inicio para que Excel reconozca acentos/ñ correctamente.
+function buildDisponibilidadCSV_(data){
+  const filas = [['Profesor','Fecha','Hora inicio','Hora fin','Motivo']];
+  PROFESORES.forEach(p=>{
+    (data[p.id]||[]).forEach(sl=>{
+      filas.push([p.nombre, fmtFechaCorta(sl.fecha), sl.hora, sl.horaFin||'', sl.motivo||'']);
+    });
+  });
+  const csv = filas.map(row=>row.map(v=>{
+    const s = String(v==null?'':v);
+    const necesitaComillas = s.indexOf(',')>=0 || s.indexOf('"')>=0 || s.indexOf('\n')>=0;
+    return necesitaComillas ? '"'+s.split('"').join('""')+'"' : s;
+  }).join(',')).join('\r\n');
+  return '\uFEFF' + csv;
+}
+// Mismo patrón que shareInvoicePDF (ver más abajo): Web Share API con archivo cuando el navegador lo
+// soporta (celular — abre el menú nativo con WhatsApp/Gmail/etc, el archivo queda adjunto solo); si
+// no, se descarga el Excel y se abre WhatsApp Web / el correo con el mensaje listo para adjuntar a mano.
+async function shareDisponibilidad_(via, data, inicio, fin){
+  const btnId = via==='whatsapp' ? 'btnDispWhatsapp' : 'btnDispCorreo';
+  const btn = document.getElementById(btnId);
+  const original = btn.innerHTML;
+  btn.innerHTML = 'Generando…'; btn.disabled = true;
+  try{
+    const csv = buildDisponibilidadCSV_(data);
+    const filename = `Disponibilidad_${inicio}_a_${fin}.csv`;
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    const mensaje = `Disponibilidad de los profesores del ${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)}.`;
+    try{
+      const file = new File([blob], filename, {type:'text/csv'});
+      const canShareFile = navigator.canShare && navigator.canShare({files:[file]});
+      if(canShareFile){
+        await navigator.share({ files:[file], title:'Disponibilidad', text: mensaje });
+        toast('Compartido', 'success');
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url), 4000);
+        if(via==='whatsapp'){
+          window.open(`https://wa.me/?text=${encodeURIComponent(mensaje)}`, '_blank');
+          toast('Excel descargado. Se abrió WhatsApp — adjunta el archivo descargado.', 'success');
+        } else {
+          const subject = 'Disponibilidad de profesores — Andersson Personal Trainer';
+          window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(mensaje)}`;
+          toast('Excel descargado. Se abrió tu correo — adjunta el archivo descargado.', 'success');
+        }
+      }
+    }catch(shareErr){
+      if(shareErr && shareErr.name==='AbortError'){ /* el usuario cerró el menú de compartir, no es un error */ }
+      else { console.error(shareErr); toast('No se pudo compartir el archivo', 'error'); }
+    }
+  }catch(err){
+    console.error(err);
+    toast('No se pudo generar el archivo', 'error');
+  }
+  btn.innerHTML = original; btn.disabled = false;
+}
+
 function renderDisponibilidad(){
   const el = document.getElementById('mod-disponibilidad');
   const hoy = isoDate(new Date());
@@ -3632,7 +3690,7 @@ function renderDisponibilidad(){
     <div class="card fade-up" style="padding:16px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;background:var(--teal-light);border:none;">
       <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.mail}</span>
       <div style="font-size:12.5px;color:var(--teal-dark);line-height:1.6;">
-        Vista previa de cómo se vería el correo diario de disponibilidad. Por ahora se ve aquí en la app — cuando la publiquemos con un servidor real, este mismo cálculo se puede conectar para que te llegue por correo automáticamente todos los días. El botón de abajo simula ese envío. Usa las flechas para adelantarte a un mes futuro (ej. si una cliente ya avisó que no toma clases el próximo mes) sin tener que esperar a que empiece.
+        Espacios ya confirmados. Usa las flechas para ver otro mes, y comparte la lista en Excel por WhatsApp o correo.
       </div>
     </div>
     <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px;">
@@ -3642,10 +3700,13 @@ function renderDisponibilidad(){
         <span style="font-size:13.5px;font-weight:600;min-width:170px;text-align:center;">${esMesActual ? `Desde hoy (${fmtFechaCorta(inicio)}) hasta fin de ${mesLabel.toLowerCase()}` : `${mesLabel} completo (${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)})`}</span>
         <button class="btn btn-ghost btn-sm" id="btnDispMesSiguiente" title="Mes siguiente" style="padding:2px 8px;font-weight:800;">›</button>
       </div>
-      <button class="btn btn-primary btn-sm" id="btnEnviarDisponibilidad"><span style="width:14px;height:14px;display:inline-flex">${ICONS.mail}</span>Simular envío por correo</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" id="btnDispWhatsapp"><span style="width:14px;height:14px;display:inline-flex">${ICONS.mail}</span>Compartir por WhatsApp</button>
+        <button class="btn btn-primary btn-sm" id="btnDispCorreo"><span style="width:14px;height:14px;display:inline-flex">${ICONS.mail}</span>Compartir por correo</button>
+      </div>
     </div>
     <div class="card" style="padding:12px 14px;margin-bottom:16px;background:var(--paper-dim);border:none;font-size:12px;color:var(--ink-fade);">
-      Se muestran los espacios que ya se saben con certeza que van a quedar libres: por un bloque "Disponible" del Excel de Drive, por una cancelación de cliente ya registrada, o por una suspensión temporal ya registrada con anticipación (vacaciones, enfermedad, etc.) — sin importar si la fecha es esta semana, otra semana del mes, o un mes futuro. Lo único que esta lista no puede anticipar son cancelaciones puntuales que todavía no han pasado (obviamente, nadie ha avisado algo que no ha ocurrido).
+      Incluye espacios ya confirmados (bloques "Disponible" de Drive, cancelaciones y suspensiones ya registradas). No incluye cancelaciones que todavía no han pasado.
     </div>
     ${totalSlots===0 ? `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay espacios disponibles por cancelaciones ni suspensiones ${esMesActual?'en lo que resta del mes':'en '+mesLabel.toLowerCase()}.</div>` :
       PROFESORES.map(p=>{
@@ -3662,19 +3723,14 @@ function renderDisponibilidad(){
                   <div class="disp-slot-hora">${sl.hora}${sl.horaFin?'–'+sl.horaFin:''}</div>
                   <div class="disp-slot-motivo">${sl.motivo}</div>
                 </div>
-                <button class="btn btn-outline btn-sm disp-slot-btn" data-programar-disp="${p.id}" data-fecha="${sl.fecha}" data-dia="${sl.dia}" data-inicio="${sl.hora}" data-fin="${sl.horaFin}">Programar cliente</button>
               </div>`).join('')}
           </div>
         </div>`;
       }).join('')
     }
   `;
-  document.getElementById('btnEnviarDisponibilidad').addEventListener('click', ()=>{
-    toast('Correo de disponibilidad enviado a anderssonpersonaltrainer@gmail.com (simulado)', 'success');
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), titulo:'Disponibilidad enviada', cuerpo:`Reporte de disponibilidad del ${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)} enviado a administrador.`, hora:'Ahora', leido:false});
-    renderNotifDrawer();
-    saveState();
-  });
+  document.getElementById('btnDispWhatsapp').addEventListener('click', ()=>shareDisponibilidad_('whatsapp', data, inicio, fin));
+  document.getElementById('btnDispCorreo').addEventListener('click', ()=>shareDisponibilidad_('correo', data, inicio, fin));
   if(puedeRetroceder){
     document.getElementById('btnDispMesAnterior').addEventListener('click', ()=>{
       STATE.disponibilidadMes = mesAnterior_(STATE.disponibilidadMes);
@@ -3684,20 +3740,6 @@ function renderDisponibilidad(){
   document.getElementById('btnDispMesSiguiente').addEventListener('click', ()=>{
     STATE.disponibilidadMes = mesSiguiente_(STATE.disponibilidadMes);
     renderDisponibilidad();
-  });
-  // 25/07/2026: mismo botón/flujo "Programar cliente" que ya existe en las tarjetas de espacio
-  // disponible del módulo Horario (openProgramarSlotModal) — aquí solo se dispara desde esta lista.
-  // 30/07/2026: se actualiza junto con el resto del módulo Horario para pasar el espacio libre
-  // calculado (profesor/fecha/día/rango) en vez del id de un bloque fijo — ver la nota completa junto
-  // a openProgramarSlotModal.
-  document.querySelectorAll('[data-programar-disp]').forEach(btn=>{
-    btn.addEventListener('click', ()=> openProgramarSlotModal({
-      profesorId: btn.dataset.programarDisp,
-      fecha: btn.dataset.fecha,
-      dia: Number(btn.dataset.dia),
-      boundsInicio: btn.dataset.inicio,
-      boundsFin: btn.dataset.fin,
-    }));
   });
 }
 
@@ -3712,6 +3754,44 @@ let registroClienteSearch = '';
 function clientesDeProfesor(profesorId){
   const ids = new Set([...SCHEDULE_TEMPLATE.filter(s=>s.profesorId===profesorId).map(s=>s.clienteId), ...REGISTROS.filter(r=>r.profesorId===profesorId).map(r=>r.clienteId)]);
   return CLIENTES.filter(c=>ids.has(c.id));
+}
+
+// 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — antes de buscar un cliente en
+// "Registro de sesiones", mostrar de un vistazo quién ya tiene registro este mes y quién no, sin que
+// estorbe el flujo normal (búsqueda → tabla de un solo cliente): se muestra SOLO en el estado vacío,
+// desaparece en cuanto se elige un cliente. Cuenta como "ya tiene registro" cualquier sesión
+// completada o abierta ("falta cierre") de ese mes — las cancelaciones no cuentan, para que la lista
+// refleje trabajo real hecho, no clases que no se dictaron. Cada nombre es clickeable, atajo directo
+// a su tabla (mismo mecanismo que las sugerencias del buscador) — es solo visual, para ver el detalle
+// completo de un registro hay que buscar/elegir ese cliente igual que siempre.
+// 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — un profesor solo debe ver, en
+// esta lista, lo que ÉL MISMO registró (no lo que registraron los demás profesores); el administrador
+// sigue viendo el panorama completo de todos los profesores.
+function clientesConSinRegistroMesHTML_(clientes){
+  const mes = STATE.invoiceMonth;
+  const soloPropios = STATE.user.rol!=='admin';
+  const conRegistro = new Set(
+    REGISTROS.filter(r=>r.fecha && r.fecha.startsWith(mes) && r.estado!=='cancelada' && (!soloPropios || r.profesorId===STATE.user.id)).map(r=>r.clienteId)
+  );
+  const activos = clientes.filter(c=>c.activo!==false).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  const conLista = activos.filter(c=>conRegistro.has(c.id));
+  const sinLista = activos.filter(c=>!conRegistro.has(c.id));
+  const pill = c => `<span data-pick-cliente-mes="${c.id}" class="pill" style="cursor:pointer;background:var(--paper-dim);font-weight:600;">${c.nombre}</span>`;
+  const etiquetaCon = soloPropios ? `✓ Registrados por ti este mes (${conLista.length})` : `✓ Con registro este mes (${conLista.length})`;
+  const etiquetaSin = soloPropios ? `Sin registrar por ti este mes (${sinLista.length})` : `Sin registro este mes (${sinLista.length})`;
+  return `
+    <div style="padding:20px 22px;">
+      <div class="section-sub" style="margin-bottom:16px;">Busca un cliente arriba, o elige uno de la lista — clientes con al menos una sesión ${soloPropios?'que registraste tú':'registrada'} en ${nombreMes(mes)}.</div>
+      <div style="margin-bottom:18px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">${etiquetaCon}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${conLista.length ? conLista.map(pill).join('') : `<span class="section-sub">Ninguno todavía.</span>`}</div>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--ink-fade);">${etiquetaSin}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${sinLista.length ? sinLista.map(pill).join('') : `<span class="section-sub">Todos tienen registro este mes.</span>`}</div>
+      </div>
+    </div>
+  `;
 }
 
 function renderRegistro(){
@@ -3758,7 +3838,7 @@ function renderRegistro(){
       ${clienteSel ? `
       <div class="table-wrap">
         <table id="tablaRegistro"></table>
-      </div>` : `<div style="padding:40px;text-align:center;color:var(--ink-fade);">Aún no has buscado un cliente. Escribe su nombre arriba para ver o crear sus registros de sesión.</div>`}
+      </div>` : clientesConSinRegistroMesHTML_(misClientes)}
     </div>
   `;
   document.getElementById('regClienteSearch').addEventListener('input', e=>{
@@ -3768,6 +3848,16 @@ function renderRegistro(){
   document.querySelectorAll('[data-pick-cliente]').forEach(x=>{
     x.addEventListener('click', ()=>{
       selectedClienteRegistro = x.dataset.pickCliente;
+      registroClienteSearch = '';
+      renderRegistro();
+      saveSession();
+      const clientePicked = CLIENTES.find(c=>c.id===selectedClienteRegistro);
+      if(clientePicked) pullRegistrosForCliente(clientePicked).catch(e=>console.warn('Drive sync falló (se sigue usando lo local):', e));
+    });
+  });
+  document.querySelectorAll('[data-pick-cliente-mes]').forEach(x=>{
+    x.addEventListener('click', ()=>{
+      selectedClienteRegistro = x.dataset.pickClienteMes;
       registroClienteSearch = '';
       renderRegistro();
       saveSession();
@@ -4027,7 +4117,7 @@ function openAddRegistroModal(){
     document.getElementById('companerosChips').innerHTML = registroCompaneros.map(id=>{
       const c = CLIENTES.find(x=>x.id===id);
       return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c.nombre}<span data-remove-comp="${id}" style="cursor:pointer;font-weight:800;">×</span></span>`;
-    }).join('') || `<span class="section-sub">Sin acompañantes agregados — es una sesión individual.</span>`;
+    }).join('');
     document.querySelectorAll('[data-remove-comp]').forEach(x=>{
       x.addEventListener('click', ()=>{
         const cid = x.dataset.removeComp;
@@ -4223,7 +4313,7 @@ function openCompletarRegistroModal(registroId){
       const r2 = REGISTROS.find(x=>x.id===rid);
       const c2 = CLIENTES.find(x=>x.id===r2.clienteId);
       return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c2.nombre}<span data-remove-completar-comp="${rid}" style="cursor:pointer;font-weight:800;">×</span></span>`;
-    }).join('') || `<span class="section-sub">Sin acompañantes agregados — se cierra solo este registro.</span>`;
+    }).join('');
     document.querySelectorAll('[data-remove-completar-comp]').forEach(x=>{
       x.addEventListener('click', ()=>{
         const rid = x.dataset.removeCompletarComp;
@@ -4426,7 +4516,7 @@ function openEditarRegistroModal(registroId){
       const r2 = REGISTROS.find(x=>x.id===rid);
       const c2 = CLIENTES.find(x=>x.id===r2.clienteId);
       return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c2.nombre}<span data-remove-edit-comp="${rid}" style="cursor:pointer;font-weight:800;">×</span></span>`;
-    }).join('') || `<span class="section-sub">Sin acompañantes agregados — se edita solo este registro.</span>`;
+    }).join('');
     document.querySelectorAll('[data-remove-edit-comp]').forEach(x=>{
       x.addEventListener('click', ()=>{
         const rid = x.dataset.removeEditComp;
@@ -4758,17 +4848,13 @@ const MODALIDADES_SESION = [
 // opción correcta preseleccionada. El precio del masaje solo se muestra al administrador (el profesor
 // ve la opción sin precio) — igual que ya funcionaba antes de este cambio.
 // 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — quitar el valor en pesos del
-// masaje en las pantallas de PROGRAMAR sesión ("ya no es necesario porque tenemos la lista [de
-// precios]"); en Nuevo registro/Editar registro se mantiene, ahí sí sigue siendo útil verlo. Nuevo
-// parámetro `mostrarPrecio` (default true, para no cambiar el comportamiento donde ya se usaba).
-function modalidadSelectOptionsHTML(valorActual, mostrarPrecio){
-  if(mostrarPrecio===undefined) mostrarPrecio = true;
+// masaje en TODAS las pantallas (antes solo se había quitado en Programar cliente, dejándolo en
+// Nuevo registro/Completar/Editar registro por juzgarlo útil ahí — Andersson pidió quitarlo también
+// ahí, ya no se muestra en ningún lado; el precio real sigue viviendo en la lista de precios).
+function modalidadSelectOptionsHTML(valorActual){
   const seleccion = valorActual ? modalidadCanonica_(valorActual) : MODALIDADES_SESION[0];
-  const admin = typeof STATE!=='undefined' && STATE.user && STATE.user.rol==='admin';
-  const etiquetaMasaje = (admin && mostrarPrecio) ? 'Masaje ($130.000)' : 'Masaje';
   return MODALIDADES_SESION.map(m=>{
-    const label = m==='Masaje' ? etiquetaMasaje : m;
-    return `<option value="${m}" ${seleccion===m?'selected':''}>${label}</option>`;
+    return `<option value="${m}" ${seleccion===m?'selected':''}>${m}</option>`;
   }).join('');
 }
 // Los registros ya sincronizados desde antes de este cambio (en los Excel reales de cada cliente en
@@ -5672,7 +5758,7 @@ function rankingClientes(estado, limite=5){
   });
   return Object.entries(counts)
     .map(([id,count])=>({cliente:CLIENTES.find(c=>c.id===id), count}))
-    .filter(x=>x.cliente)
+    .filter(x=>x.cliente && x.cliente.activo!==false)
     .sort((a,b)=>b.count-a.count)
     .slice(0,limite);
 }
@@ -5736,7 +5822,10 @@ function resumenValorProfesorMes(profesorId, monthStr){
 function renderClientes(){
   const el = document.getElementById('mod-clientes');
   const overview = isAdminOverview();
-  const baseClientes = CLIENTES; // todos los profesores ven el listado completo de clientes, estén o no en su horario
+  // 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — mostrar solo clientes activos
+  // en este módulo (antes se veían también los inactivos/"Antiguo"). Todos los profesores siguen
+  // viendo el mismo listado (activos), estén o no en su horario.
+  const baseClientes = CLIENTES.filter(c=>c.activo!==false);
   const baseIds = new Set(baseClientes.map(c=>c.id));
   const filtered = baseClientes.filter(c => c.nombre.toLowerCase().includes(clientesSearch.toLowerCase()));
   const sesionesMes = c => REGISTROS.filter(r=>r.clienteId===c.id && r.fecha && r.fecha.startsWith(STATE.invoiceMonth) && r.estado!=='cancelada').length;
