@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-02.2">
+<meta name="app-version" content="2026-08-02.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -553,6 +553,16 @@ const ICONS = {
 // con el valor de API_TOKEN dentro del Apps Script.
 const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwuECRt7QIYmNi_WBr0svnSVhpgYt7CchEZJDy3smnCyTIigI8HtqW_uAQLbTazWys/exec';
 const GAS_API_TOKEN = 'vH9mXRxGzLAsBbZpWAtdTa4FpOpS9gUg';
+// 02/08/2026: pedido explícito de Andersson — a veces está en la calle y necesita ver el Excel real
+// de horarios (no solo lo que ya interpretó la app), sin que eso sature la pantalla. Enlace directo
+// de solo lectura a la pestaña de cada profesor — gid real, obtenido una sola vez del propio Sheet
+// (Implementar → probar ?action=scheduleTabGids), no adivinado.
+const SCHEDULE_SPREADSHEET_ID = '1zMtnRbQpmLAUIFnMH4KbV3cgyl_fKnkWAOTpfd2z9sQ';
+const SCHEDULE_TAB_GIDS = { u_andersson: 685905869, u_daniel: 0, u_karen: 900459830 };
+function urlHorarioReal_(profesorId){
+  const gid = SCHEDULE_TAB_GIDS[profesorId];
+  return `https://docs.google.com/spreadsheets/d/${SCHEDULE_SPREADSHEET_ID}/edit${gid!==undefined?'#gid='+gid:''}`;
+}
 function gasConfigured(){
   return !!GAS_WEBAPP_URL && GAS_WEBAPP_URL.indexOf('REEMPLAZAR_CON_TU_URL_DE_APPS_SCRIPT')===-1;
 }
@@ -2875,6 +2885,13 @@ function renderHorario(){
   const semanaSelData = STATE.horarioSemana ? semanasDelMes.find(s=>s.inicio===STATE.horarioSemana) : null;
   const semanaSelLabel = semanaSelData ? `la semana del ${fmtFechaCorta(semanaSelData.inicio)} al ${fmtFechaCorta(semanaSelData.fin)}` : mesLabel;
 
+  // 02/08/2026: pedido explícito de Andersson — acceso rápido al Excel real de horarios desde el
+  // celular (ej. estando en la calle), sin depender de lo que la app ya interpretó. Si es admin y
+  // tiene un profesor puntual elegido en los botones de arriba, enlaza directo a su pestaña; si no
+  // (o si es un profesor viendo su propio horario), enlaza a la pestaña que corresponda.
+  const profesorParaExcelReal = overview ? (STATE.viewProfesorId && STATE.viewProfesorId!=='all' ? STATE.viewProfesorId : null) : STATE.user.id;
+  const urlExcelReal = urlHorarioReal_(profesorParaExcelReal);
+
   el.innerHTML = `
     <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:6px;">
       <div class="card" style="padding:12px 16px;display:flex;gap:8px;align-items:center;">
@@ -2882,21 +2899,24 @@ function renderHorario(){
         <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
         <span style="font-size:13.5px;font-weight:600;min-width:140px;text-align:center;">${mesLabel}</span>
         <button class="btn btn-ghost btn-sm" id="btnMesSiguiente" title="Mes siguiente" style="padding:2px 8px;font-weight:800;">›</button>
+        <a href="${urlExcelReal}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" title="Abrir el Excel real de horarios en Drive (útil en el celular, fuera de la app)" style="padding:2px 8px;text-decoration:none;"><span style="width:15px;height:15px;display:inline-flex">${ICONS.file}</span></a>
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnActualizarHorario"><span style="width:14px;height:14px;display:inline-flex">${ICONS.sync}</span>Actualizar horario</button>` : ''}
         ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnReenviarCambios" title="Vuelve a subir al servidor todos los clientes programados/reasignaciones/masajes de este dispositivo — útil si alguno no se compartió con los demás"><span style="width:14px;height:14px;display:inline-flex">${ICONS.sync}</span>Reenviar cambios a todos</button>` : ''}
         ${overview ? `<button class="btn btn-primary btn-sm" id="btnProgramarCliente" onclick="openProgramarSlotModal()"><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Programar cliente</button>` : ''}
         ${overview ? `
-        <select id="filtroProfesor" class="card" style="padding:11px 14px;border:1px solid var(--line);font-weight:600;font-size:13.5px;">
-          <option value="all">Todos los profesores</option>
-          ${PROFESORES.map(p=>`<option value="${p.id}" ${STATE.viewProfesorId===p.id?'selected':''}>${p.nombre}</option>`).join('')}
-        </select>` : ''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-sm" data-profesor-sel="all" style="padding:6px 14px;font-size:12.5px;font-weight:700;${(!STATE.viewProfesorId || STATE.viewProfesorId==='all') ? 'background:var(--accent);color:#fff;' : 'background:var(--paper-dim);color:var(--ink-soft);'}">Todos</button>
+          ${PROFESORES.map(p=>`<button class="btn btn-sm" data-profesor-sel="${p.id}" style="padding:6px 14px;font-size:12.5px;font-weight:700;${STATE.viewProfesorId===p.id ? 'background:var(--accent);color:#fff;' : 'background:var(--paper-dim);color:var(--ink-soft);'}">${p.nombre.split(' ')[0]}</button>`).join('')}
+        </div>` : ''}
       </div>
     </div>
-    <div class="fade-up" style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
-      <button class="btn btn-sm" data-semana-sel="" style="padding:5px 13px;font-size:11.5px;font-weight:700;${!STATE.horarioSemana ? 'background:var(--accent);color:#fff;' : 'background:var(--paper-dim);color:var(--ink-soft);'}">Todo el mes</button>
-      ${semanasDelMes.map(sw=>`<button class="btn btn-sm" data-semana-sel="${sw.inicio}" style="padding:5px 13px;font-size:11.5px;font-weight:700;${STATE.horarioSemana===sw.inicio ? 'background:var(--accent);color:#fff;' : 'background:var(--paper-dim);color:var(--ink-soft);'}">${fmtCortaSinAnio(sw.inicio)}–${fmtCortaSinAnio(sw.fin)}</button>`).join('')}
+    <div class="fade-up" style="margin-bottom:14px;">
+      <select id="selectSemana" class="card" style="padding:9px 14px;border:1px solid var(--line);font-weight:700;font-size:12.5px;">
+        <option value="" ${!STATE.horarioSemana ? 'selected' : ''}>Todo el mes</option>
+        ${semanasDelMes.map(sw=>`<option value="${sw.inicio}" ${STATE.horarioSemana===sw.inicio ? 'selected' : ''}>Semana ${fmtCortaSinAnio(sw.inicio)}–${fmtCortaSinAnio(sw.fin)}</option>`).join('')}
+      </select>
     </div>
     ${isAdmin ? `<div class="section-sub" style="margin-bottom:18px;">${_lastScheduleSyncAt ? `Última actualización desde Drive: ${new Date(_lastScheduleSyncAt).toLocaleString('es-CO')}` : 'Todavía no se ha actualizado el horario desde Drive en este dispositivo.'}</div>` : `<div style="margin-bottom:18px;"></div>`}
     <div style="display:flex;flex-direction:column;gap:28px;">
@@ -2931,9 +2951,11 @@ function renderHorario(){
   `;
 
   if(overview){
-    document.getElementById('filtroProfesor').addEventListener('change', e=>{
-      STATE.viewProfesorId = e.target.value;
-      renderHorario();
+    document.querySelectorAll('[data-profesor-sel]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        STATE.viewProfesorId = btn.dataset.profesorSel;
+        renderHorario();
+      });
     });
   }
   document.getElementById('btnMesAnterior').addEventListener('click', ()=>{
@@ -2946,11 +2968,9 @@ function renderHorario(){
     STATE.horarioSemana = null;
     renderHorario();
   });
-  document.querySelectorAll('[data-semana-sel]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      STATE.horarioSemana = btn.dataset.semanaSel || null;
-      renderHorario();
-    });
+  document.getElementById('selectSemana').addEventListener('change', e=>{
+    STATE.horarioSemana = e.target.value || null;
+    renderHorario();
   });
   if(isAdmin){
     document.getElementById('btnActualizarHorario').addEventListener('click', async function(){
