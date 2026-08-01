@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-01.3">
+<meta name="app-version" content="2026-08-01.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -702,11 +702,13 @@ Entendiendo que la usuaria entrenará solo dos días, estos seguidos, se sugiere
 // cancelDelDia/cancelNochePrevia, sincronizados desde la lista de precios maestra (ver
 // LISTA_PRECIOS_COLUMNAS_ en el .gs y syncListaPreciosDesdeSheet_ más abajo). 'pct' queda solo
 // como referencia/documentación, no se usa para calcular.
+// 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — "la cancelación anticipada no
+// existe ya", se quita del selector. Quedan solo 3 categorías con costo (sobre tiempo/del día/noche
+// previa) + la de profesor sin costo.
 const TIPO_CANCELACION = [
   {v:'sobre_tiempo', label:'Cancelación sobre tiempo', pct:1.00, desc:'Cliente notifica con 3h o menos de anticipación para la sesión. Costo 100% (Regla 3).'},
   {v:'del_dia', label:'Cancelación del día', pct:0.50, desc:'Cliente notifica el mismo día, con más de 3h de anticipación. Costo 50% (Regla 4).'},
   {v:'noche_previa', label:'Cancelación noche previa', pct:0.25, desc:'Cliente notifica después de las 6:00 p.m. del día inmediatamente anterior. Costo 25% (Regla 5).'},
-  {v:'anticipada', label:'Cancelación anticipada', pct:0, desc:'Cliente notifica antes de las 6:00 p.m. del día inmediatamente anterior, o antes. Sin costo (Regla 6).'},
   // 24/07/2026: pedido explícito de Andersson — cuando es el PROFESOR quien cancela la clase (no el
   // cliente), no debe generarle ningún cobro al cliente, sin importar cuándo se avise. No es una de
   // las 4 reglas de cara al cliente de agosto 2026 — es política interna del negocio; se mantiene
@@ -2524,6 +2526,9 @@ const CANCEL_META = {
   sobre_tiempo:{label:'Cancelación sobre tiempo', cls:'pill-danger'},
   del_dia:{label:'Cancelación del día', cls:'pill-warning'},
   noche_previa:{label:'Cancelación noche previa', cls:'pill-warning'},
+  // 'anticipada' ya no es una opción elegible (ver TIPO_CANCELACION) pero se deja aquí a propósito
+  // para que las cancelaciones YA registradas con ese tipo (antes de este cambio) se sigan
+  // mostrando bien — nunca se tocan los registros ya hechos.
   anticipada:{label:'Cancelación anticipada', cls:'pill-gray'},
   profesor:{label:'Cancelación por profesor', cls:'pill-accent'},
 };
@@ -2757,7 +2762,7 @@ function renderHorario(){
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnActualizarHorario"><span style="width:14px;height:14px;display:inline-flex">${ICONS.sync}</span>Actualizar horario</button>` : ''}
         ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnReenviarCambios" title="Vuelve a subir al servidor todos los clientes programados/reasignaciones/masajes de este dispositivo — útil si alguno no se compartió con los demás"><span style="width:14px;height:14px;display:inline-flex">${ICONS.sync}</span>Reenviar cambios a todos</button>` : ''}
-        ${overview ? `<button class="btn btn-primary btn-sm" id="btnAgendarMasaje" onclick="openAgendarMasajeModal()"><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Agendar masaje</button>` : ''}
+        ${overview ? `<button class="btn btn-primary btn-sm" id="btnProgramarCliente" onclick="openProgramarSlotModal()"><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Programar cliente</button>` : ''}
         ${overview ? `
         <select id="filtroProfesor" class="card" style="padding:11px 14px;border:1px solid var(--line);font-weight:600;font-size:13.5px;">
           <option value="all">Todos los profesores</option>
@@ -3040,19 +3045,35 @@ function openReasignarModal(id){
 // bloque "Disponible"/la cancelación/la suspensión de origen — así que lo que sobre del espacio (antes
 // o después de la hora elegida) sigue apareciendo disponible de inmediato en la siguiente vista,
 // permitiendo agendar varias sesiones en momentos distintos del mismo espacio, una tras otra.
+// 01/08/2026: pedido explícito de Andersson — se fusionó "Agendar masaje" (botón aparte, profesor y
+// hora totalmente libres) dentro de este mismo flujo, para no tener dos botones distintos: "Tipo de
+// sesión" ahora incluye Masaje (ya lo traía modalidadSelectOptionsHTML), se puede elegir el profesor
+// libremente (antes quedaba fijo al de la tarjeta de espacio disponible que abrió el modal), y se
+// agregó la opción de acompañante (sesión conjunta), igual que ya existía en Nuevo registro/Cancelar.
+// `espacio` es OPCIONAL: si se pasa (viene de una tarjeta de espacio disponible ya calculada), el
+// profesor/fecha quedan sugeridos y la hora se valida contra ese rango — salvo que el usuario cambie
+// el profesor a otro distinto o elija Masaje, casos en los que ya no aplica esa validación (no hay
+// ningún "espacio libre" calculado para esa combinación). Si no se pasa `espacio` (botón general del
+// módulo Horario), se abre en modo libre: profesor, fecha y hora totalmente a elección, igual a como
+// funcionaba antes "Agendar masaje".
+let programarCompaneros = [];
+let programarCompanerosSearch = '';
 function openProgramarSlotModal(espacio){
-  const {profesorId, fecha, dia, boundsInicio, boundsFin} = espacio;
+  const libre = !espacio;
   const clientesActivos = CLIENTES.filter(c=>c.activo!==false).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  programarCompaneros = [];
+  programarCompanerosSearch = '';
   openModal(`
     <div class="modal-head">
-      <h3>Programar cliente en espacio disponible</h3>
+      <h3>${libre ? 'Programar cliente' : 'Programar cliente en espacio disponible'}</h3>
       <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
     </div>
     <div class="modal-body">
+      ${!libre ? `
       <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
-        <div style="font-weight:700;">${profesorNombre(profesorId)}</div>
-        <div class="section-sub">${DIAS[dia]} ${fmtFechaCorta(fecha)} · espacio libre ${boundsInicio}–${boundsFin}</div>
-      </div>
+        <div style="font-weight:700;">${profesorNombre(espacio.profesorId)}</div>
+        <div class="section-sub">${DIAS[espacio.dia]} ${fmtFechaCorta(espacio.fecha)} · espacio libre ${espacio.boundsInicio}–${espacio.boundsFin}</div>
+      </div>` : ''}
       <form id="programarForm">
         <div class="field">
           <label>Cliente <span class="req">*</span></label>
@@ -3062,22 +3083,45 @@ function openProgramarSlotModal(espacio){
           </select>
         </div>
         <div class="field">
+          <label>Profesor <span class="req">*</span></label>
+          <select id="pProfesor" required>
+            <option value="">Selecciona un profesor…</option>
+            ${PROFESORES.map(p=>`<option value="${p.id}" ${!libre && espacio.profesorId===p.id ? 'selected':''}>${p.nombre}</option>`).join('')}
+          </select>
+        </div>
+        ${libre ? `
+        <div class="field">
+          <label>Fecha <span class="req">*</span></label>
+          <input type="date" id="pFecha" required value="${STATE.horarioMes}-01">
+          <small>El horario funciona de lunes a sábado.</small>
+        </div>` : ''}
+        <div class="field">
           <label>Hora inicio <span class="req">*</span></label>
-          <input type="time" id="pHoraInicio" required value="${boundsInicio}" min="${boundsInicio}" max="${boundsFin}">
+          <input type="time" id="pHoraInicio" required ${!libre?`value="${espacio.boundsInicio}"`:''}>
         </div>
         <div class="field">
           <label>Hora fin <span class="req">*</span></label>
-          <input type="time" id="pHoraFin" required value="${boundsFin}" min="${boundsInicio}" max="${boundsFin}">
+          <input type="time" id="pHoraFin" required ${!libre?`value="${espacio.boundsFin}"`:''}>
         </div>
         <div class="field">
-          <label>Modalidad <span class="req">*</span></label>
-          <select id="pModalidad" required>${modalidadSelectOptionsHTML()}</select>
+          <label>Tipo de sesión <span class="req">*</span></label>
+          <select id="pModalidad" required>${modalidadSelectOptionsHTML(null, false)}</select>
+        </div>
+        <div class="field" id="pCompanerosField">
+          <label>¿Sesión conjunta con otro cliente? (opcional)</label>
+          <div class="section-sub" style="margin-bottom:6px;">Úsalo cuando dos clientes toman la misma clase juntos</div>
+          <div id="pCompanerosChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"></div>
+          <div style="position:relative;">
+            <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
+            <input type="text" id="pCompaneroSearch" placeholder="Buscar cliente para agregar…" style="width:100%;padding:10px 12px 10px 34px;border:1.5px solid var(--line);border-radius:100px;">
+          </div>
+          <div id="pCompanerosResultados" style="max-height:140px;overflow-y:auto;margin-top:6px;display:flex;flex-direction:column;gap:2px;"></div>
         </div>
         <div class="field">
           <label>Lugar</label>
           <input type="text" id="pLugar" placeholder="Ej. Domicilio cliente" value="Domicilio cliente">
         </div>
-        <small>Debe quedar dentro del espacio disponible (${boundsInicio}–${boundsFin}) — si programas solo una parte, el resto del espacio sigue disponible para otra clase. Esta es una sesión única, solo para esta fecha (${fmtFechaCorta(fecha)}). Para un cambio fijo/permanente, actualiza directamente el Excel "Horarios Profesores" en Drive.</small>
+        <small id="pBoundsHint">${!libre ? `Debe quedar dentro del espacio disponible (${espacio.boundsInicio}–${espacio.boundsFin}) — si cambias el profesor o eliges Masaje, esa restricción ya no aplica. Esta es una sesión única, solo para esta fecha (${fmtFechaCorta(espacio.fecha)}).` : 'Esta es una sesión única, solo para esta fecha.'} Para un cambio fijo/permanente, actualiza directamente el Excel "Horarios Profesores" en Drive.</small>
       </form>
     </div>
     <div class="modal-foot">
@@ -3090,35 +3134,98 @@ function openProgramarSlotModal(espacio){
     if(!lugarInput.dataset.editadoManual){
       lugarInput.value = modalidadCanonica_(e.target.value).includes('Online') ? 'Online' : 'Domicilio cliente';
     }
+    // El masaje no tiene versión "semipersonalizada" — se limpia cualquier acompañante ya agregado.
+    if(e.target.value==='Masaje' && programarCompaneros.length){
+      programarCompaneros = [];
+      renderPCompaneroChips();
+    }
+    document.getElementById('pCompanerosField').style.display = e.target.value==='Masaje' ? 'none' : '';
   });
   document.getElementById('pLugar').addEventListener('input', function(){ this.dataset.editadoManual = '1'; });
+
+  function renderPCompaneroChips(){
+    document.getElementById('pCompanerosChips').innerHTML = programarCompaneros.map(id=>{
+      const c = CLIENTES.find(x=>x.id===id);
+      return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c.nombre}<span data-remove-pcomp="${id}" style="cursor:pointer;font-weight:800;">×</span></span>`;
+    }).join('');
+    document.querySelectorAll('[data-remove-pcomp]').forEach(x=>{
+      x.addEventListener('click', ()=>{
+        programarCompaneros = programarCompaneros.filter(id=>id!==x.dataset.removePcomp);
+        renderPCompaneroChips(); renderPCompaneroResultados();
+      });
+    });
+  }
+  // Mismo criterio que "Nuevo registro": agregar un acompañante sugiere la modalidad semipersonalizada.
+  function ajustarModalidadPorPCompaneros_(){
+    const sel = document.getElementById('pModalidad');
+    if(!sel) return;
+    const aSemi = {'Entrenamiento adaptado Presencial':'Entrenamiento semipersonalizado Presencial', 'Entrenamiento adaptado Online':'Entrenamiento semipersonalizado Online'};
+    const aAdaptado = {'Entrenamiento semipersonalizado Presencial':'Entrenamiento adaptado Presencial', 'Entrenamiento semipersonalizado Online':'Entrenamiento adaptado Online'};
+    if(programarCompaneros.length>0 && aSemi[sel.value]) sel.value = aSemi[sel.value];
+    else if(programarCompaneros.length===0 && aAdaptado[sel.value]) sel.value = aAdaptado[sel.value];
+  }
+  function renderPCompaneroResultados(){
+    const q = programarCompanerosSearch.trim().toLowerCase();
+    const el = document.getElementById('pCompanerosResultados');
+    if(!q){ el.innerHTML=''; return; }
+    const clienteSel = document.getElementById('pCliente').value;
+    const results = CLIENTES.filter(c=>c.id!==clienteSel && c.activo!==false && !programarCompaneros.includes(c.id) && c.nombre.toLowerCase().includes(q)).slice(0,8);
+    el.innerHTML = results.map(c=>`<div class="card" data-add-pcomp="${c.id}" style="padding:8px 10px;cursor:pointer;font-size:13px;font-weight:600;" onmouseover="this.style.background='var(--paper-dim)'" onmouseout="this.style.background='#fff'">+ ${c.nombre}</div>`).join('') || `<div class="section-sub" style="padding:6px 2px;">Sin resultados.</div>`;
+    document.querySelectorAll('[data-add-pcomp]').forEach(x=>{
+      x.addEventListener('click', ()=>{
+        programarCompaneros.push(x.dataset.addPcomp);
+        programarCompanerosSearch='';
+        document.getElementById('pCompaneroSearch').value='';
+        ajustarModalidadPorPCompaneros_();
+        renderPCompaneroChips(); renderPCompaneroResultados();
+      });
+    });
+  }
+  renderPCompaneroChips();
+  document.getElementById('pCompaneroSearch').addEventListener('input', e=>{ programarCompanerosSearch = e.target.value; renderPCompaneroResultados(); });
+
   document.getElementById('btnConfirmProgramar').addEventListener('click', ()=>{
     const form = document.getElementById('programarForm');
     if(!form.reportValidity()) return;
     const clienteId = document.getElementById('pCliente').value;
+    const profesorId = document.getElementById('pProfesor').value;
     const horaInicio = document.getElementById('pHoraInicio').value;
     const horaFin = document.getElementById('pHoraFin').value;
     if(horaFin<=horaInicio){ toast('La hora de fin debe ser después de la hora de inicio.', 'error'); return; }
-    if(horaInicio<boundsInicio || horaFin>boundsFin){ toast(`La sesión debe quedar dentro del espacio disponible (${boundsInicio}–${boundsFin}).`, 'error'); return; }
     const modalidad = document.getElementById('pModalidad').value;
+    let fecha, dia;
+    if(libre){
+      fecha = document.getElementById('pFecha').value;
+      dia = weekdayIdxFromISO(fecha);
+      if(dia<0){ toast('El horario funciona de lunes a sábado — elige otra fecha.', 'error'); return; }
+    } else {
+      fecha = espacio.fecha; dia = espacio.dia;
+      // La validación de "dentro del espacio libre" solo aplica si se mantiene el MISMO profesor de
+      // la tarjeta y no es Masaje — cambiar de profesor o elegir Masaje ya no tiene un espacio
+      // calculado contra el cual validar.
+      if(profesorId===espacio.profesorId && modalidad!=='Masaje' && (horaInicio<espacio.boundsInicio || horaFin>espacio.boundsFin)){
+        toast(`La sesión debe quedar dentro del espacio disponible (${espacio.boundsInicio}–${espacio.boundsFin}).`, 'error'); return;
+      }
+    }
     const lugar = document.getElementById('pLugar').value.trim() || (modalidadCanonica_(modalidad).includes('Online') ? 'Online' : 'Domicilio cliente');
-    const nuevo = {
-      id: 'sp'+Date.now(),
-      clienteId, profesorId, dia, hora:horaInicio, horaFin, tipo: modalidad, lugar,
-      estado: 'pendiente', fecha, programadoPorAdmin: true,
-    };
-    SCHEDULE.push(nuevo);
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId, titulo:'Cliente programado en espacio disponible', cuerpo:`${clienteNombre(clienteId)} programado con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${fmtFechaCorta(fecha)} ${horaInicio}–${horaFin}, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    const grupoIds = [clienteId, ...programarCompaneros];
+    grupoIds.forEach(cid=>{
+      const nuevo = {
+        id: 'sp'+Date.now()+'_'+cid,
+        clienteId:cid, profesorId, dia, hora:horaInicio, horaFin, tipo: modalidad, lugar,
+        estado: 'pendiente', fecha, programadoPorAdmin: true,
+      };
+      SCHEDULE.push(nuevo);
+      gasGuardarScheduleOverride_(nuevo);
+    });
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId, titulo: libre ? 'Cliente programado' : 'Cliente programado en espacio disponible', cuerpo:`${grupoIds.map(clienteNombre).join(' y ')} programado con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${fmtFechaCorta(fecha)} ${horaInicio}–${horaFin}, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     refrescarVistaHorarioODisponibilidad_();
     // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
     // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
     saveState();
-    // 26/07/2026: se sube al Apps Script para que se vea en cualquier otro dispositivo (el celular
-    // del administrador, el del profesor) — ver el bug serio corregido junto a SCHEDULE_OVERRIDES.
-    gasGuardarScheduleOverride_(nuevo);
-    toast(`${clienteNombre(clienteId)} programado (${horaInicio}–${horaFin}).`, 'success');
+    toast(`${grupoIds.map(clienteNombre).join(' y ')} programado (${horaInicio}–${horaFin}).`, 'success');
   });
 }
 // El botón "Programar cliente" aparece tanto en el módulo Horario (tarjetas de espacio disponible)
@@ -3131,84 +3238,6 @@ function openProgramarSlotModal(espacio){
 function refrescarVistaHorarioODisponibilidad_(){
   if(STATE.module==='horario') renderHorario();
   else if(STATE.module==='disponibilidad') renderDisponibilidad();
-}
-
-function openAgendarMasajeModal(){
-  const clientesActivos = CLIENTES.filter(c=>c.activo!==false).sort((a,b)=>a.nombre.localeCompare(b.nombre));
-  openModal(`
-    <div class="modal-head">
-      <h3>Agendar masaje</h3>
-      <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
-    </div>
-    <div class="modal-body">
-      <form id="masajeForm">
-        <div class="field">
-          <label>Profesor <span class="req">*</span></label>
-          <select id="mProfesor" required>
-            <option value="">Selecciona un profesor…</option>
-            ${PROFESORES.map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field">
-          <label>Cliente <span class="req">*</span></label>
-          <select id="mCliente" required>
-            <option value="">Selecciona un cliente…</option>
-            ${clientesActivos.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field">
-          <label>Fecha <span class="req">*</span></label>
-          <input type="date" id="mFecha" required value="${STATE.horarioMes}-01">
-          <small>El horario funciona de lunes a sábado.</small>
-        </div>
-        <div class="field">
-          <label>Hora <span class="req">*</span></label>
-          <input type="time" id="mHora" required>
-        </div>
-        <div class="field">
-          <label>Lugar</label>
-          <input type="text" id="mLugar" placeholder="Ej. Domicilio cliente" value="Domicilio cliente">
-        </div>
-      </form>
-    </div>
-    <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" id="btnConfirmMasaje">Agendar</button>
-    </div>
-  `);
-  document.getElementById('btnConfirmMasaje').addEventListener('click', ()=>{
-    const form = document.getElementById('masajeForm');
-    if(!form.reportValidity()) return;
-    const profesorId = document.getElementById('mProfesor').value;
-    const clienteId = document.getElementById('mCliente').value;
-    const fecha = document.getElementById('mFecha').value;
-    const dia = weekdayIdxFromISO(fecha);
-    if(dia<0){ toast('El horario funciona de lunes a sábado — elige otra fecha.', 'error'); return; }
-    const hora = document.getElementById('mHora').value;
-    const lugar = document.getElementById('mLugar').value.trim() || 'Domicilio cliente';
-    const nuevo = {
-      id: 'sm'+Date.now(),
-      clienteId, profesorId, dia, hora,
-      horaFin: calcHoraFin(hora, 60),
-      tipo: 'Masaje terapéutico',
-      lugar,
-      estado: 'pendiente',
-      fecha,
-      agendadoPorAdmin: true,
-    };
-    SCHEDULE.push(nuevo);
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:profesorId, titulo:'Masaje agendado', cuerpo:`Masaje de ${clienteNombre(clienteId)} con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${fmtFechaCorta(fecha)} ${hora}, agendado por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
-    renderNotifDrawer();
-    closeModal();
-    renderHorario();
-    // 26/07/2026: se guarda de inmediato (antes se dejaba solo al respaldo periódico de 5s) — ver
-    // el bug real corregido junto a loadPublishedSchedule() sobre por qué esto importa tanto ahora.
-    saveState();
-    // 26/07/2026: se sube al Apps Script para que se vea en cualquier otro dispositivo — ver el bug
-    // serio corregido junto a SCHEDULE_OVERRIDES.
-    gasGuardarScheduleOverride_(nuevo);
-    toast(`Masaje agendado con ${profesorNombre(profesorId)}.`, 'success');
-  });
 }
 
 // 30/07/2026: pedido explícito de Andersson — cuando dos clientes toman la clase juntos (ej. María
@@ -3298,7 +3327,7 @@ function openCancelModal(id){
         document.getElementById('cCompanerosChips').innerHTML = cancelCompaneros.map(cid=>{
           const c = CLIENTES.find(x=>x.id===cid);
           return `<span class="pill pill-accent" style="display:inline-flex;align-items:center;gap:6px;">${c.nombre}<span data-remove-cancel-comp="${cid}" style="cursor:pointer;font-weight:800;">×</span></span>`;
-        }).join('') || `<span class="section-sub">Sin acompañante agregado — se cancela solo para uno.</span>`;
+        }).join('');
         document.querySelectorAll('[data-remove-cancel-comp]').forEach(x=>{
           x.addEventListener('click', ()=>{
             cancelCompaneros = cancelCompaneros.filter(cid=>cid!==x.dataset.removeCancelComp);
@@ -4728,9 +4757,15 @@ const MODALIDADES_SESION = [
 // Genera las 5 <option> del selector de modalidad (usado en Nuevo registro y Editar registro), con la
 // opción correcta preseleccionada. El precio del masaje solo se muestra al administrador (el profesor
 // ve la opción sin precio) — igual que ya funcionaba antes de este cambio.
-function modalidadSelectOptionsHTML(valorActual){
+// 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — quitar el valor en pesos del
+// masaje en las pantallas de PROGRAMAR sesión ("ya no es necesario porque tenemos la lista [de
+// precios]"); en Nuevo registro/Editar registro se mantiene, ahí sí sigue siendo útil verlo. Nuevo
+// parámetro `mostrarPrecio` (default true, para no cambiar el comportamiento donde ya se usaba).
+function modalidadSelectOptionsHTML(valorActual, mostrarPrecio){
+  if(mostrarPrecio===undefined) mostrarPrecio = true;
   const seleccion = valorActual ? modalidadCanonica_(valorActual) : MODALIDADES_SESION[0];
-  const etiquetaMasaje = (typeof STATE!=='undefined' && STATE.user && STATE.user.rol==='admin') ? 'Masaje ($130.000)' : 'Masaje';
+  const admin = typeof STATE!=='undefined' && STATE.user && STATE.user.rol==='admin';
+  const etiquetaMasaje = (admin && mostrarPrecio) ? 'Masaje ($130.000)' : 'Masaje';
   return MODALIDADES_SESION.map(m=>{
     const label = m==='Masaje' ? etiquetaMasaje : m;
     return `<option value="${m}" ${seleccion===m?'selected':''}>${label}</option>`;
@@ -4900,9 +4935,15 @@ const NORMAS_CANCELACION = [
   {n:3, t:'Cancelación sobre el tiempo:', d:'Cuando el cliente notifique la cancelación de la clase faltando tres horas o menos tiempo para su ejecución, se considerará una cancelación sobre el tiempo. En este caso el cliente acuerda asumir el 100% del costo de la clase.'},
   {n:4, t:'Cancelación del día:', d:'Si el día en que se tiene agendada la sesión de entrenamiento, el cliente cancela la misma con más de tres horas para su realización, el cliente acepta asumir el 50% del costo total de la clase.'},
   {n:5, t:'Cancelación la noche previa:', d:'Si el cliente cancela la sesión de entrenamiento después de las 6:00 p.m. del día inmediatamente anterior a la sesión agendada, el cliente acepta asumir el 25% del valor total de la sesión.'},
-  {n:6, t:'Cancelación anticipada:', d:'Cuando el cliente cancele la sesión antes de las de las 6:00 p.m. del día inmediatamente anterior a la sesión agendada o antes, no habrá costo alguno. Lo anterior aplica tanto para la cancelación de una sesión, como para cancelar un grupo de sesiones.'},
-  {n:7, t:'Reposición de la sesión:', d:'Cuando el cliente no pueda tomar alguna sesión y notifique de manera anticipada (antes de las seis de la tarde del día anterior), el cliente y el entrenador intentarán reagendar la sesión según la disponibilidad del entrenador. Si no es posible reagendar, se entenderá como una cancelación anticipada.'},
-  {n:8, t:'Cesión de sesiones de entrenamiento:', d:'Con el fin de mitigar los efectos derivados de la cancelación de más de dos sesiones seguidas, por razones de viaje, salud, etc., el cliente puede coordinar ceder a un tercero las sesiones que cancela de forma anticipada, sujeto a los ajustes logísticos necesarios por parte del entrenador.'},
+  // 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — "la cancelación anticipada no
+  // existe ya", se quita la Regla 6 de este texto impreso también (antes: "Cancelación anticipada...
+  // no habrá costo alguno"). PENDIENTE PARA ANDERSSON: la Regla 7 (ahora n:6) todavía menciona la
+  // frase "se entenderá como una cancelación anticipada" — es texto literal del documento oficial
+  // "Reglas_para_la_cancelacion_agosto_2026.pdf", no lo reescribí por mi cuenta porque solo se
+  // confirmó quitar la Regla 6, no reeditar el resto del texto legal. Si esa frase ya no aplica,
+  // avisa para ajustarla (aquí y en el PDF oficial que compartes con los clientes, que tampoco toqué).
+  {n:6, t:'Reposición de la sesión:', d:'Cuando el cliente no pueda tomar alguna sesión y notifique de manera anticipada (antes de las seis de la tarde del día anterior), el cliente y el entrenador intentarán reagendar la sesión según la disponibilidad del entrenador. Si no es posible reagendar, se entenderá como una cancelación anticipada.'},
+  {n:7, t:'Cesión de sesiones de entrenamiento:', d:'Con el fin de mitigar los efectos derivados de la cancelación de más de dos sesiones seguidas, por razones de viaje, salud, etc., el cliente puede coordinar ceder a un tercero las sesiones que cancela de forma anticipada, sujeto a los ajustes logísticos necesarios por parte del entrenador.'},
 ];
 
 // Oculta del resumen los conceptos de cancelación que no tuvieron ninguna ocurrencia ese mes (cant=0)
