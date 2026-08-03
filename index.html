@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-02.4">
+<meta name="app-version" content="2026-08-02.7">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -709,12 +709,18 @@ Entendiendo que la usuaria entrenará solo dos días, estos seguidos, se sugiere
 // LISTA_PRECIOS_COLUMNAS_ en el .gs y syncListaPreciosDesdeSheet_ más abajo). 'pct' queda solo
 // como referencia/documentación, no se usa para calcular.
 // 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — "la cancelación anticipada no
-// existe ya", se quita del selector. Quedan solo 3 categorías con costo (sobre tiempo/del día/noche
-// previa) + la de profesor sin costo.
+// existe ya", se quitó del selector.
+// 02/08/2026: vuelta a agregar, también a pedido explícito — aunque nunca tiene costo para el
+// cliente (Regla 6, $0), Andersson la quiere de vuelta como categoría seleccionable para que quede
+// funcional en las cuentas de cobro (línea "Cancelación anticipada (sin costo)", ya la calculaba
+// computeInvoiceValues) y en las estadísticas por profesor (desglose de cancelaciones por tipo en
+// Registro de sesiones, y la pérdida atribuida en el resumen por profesor) — antes de este cambio,
+// una cancelación de este tipo quedaba invisible en ambos lados porque no había forma de elegirla.
 const TIPO_CANCELACION = [
   {v:'sobre_tiempo', label:'Cancelación sobre tiempo', pct:1.00, desc:'Cliente notifica con 3h o menos de anticipación para la sesión. Costo 100% (Regla 3).'},
   {v:'del_dia', label:'Cancelación del día', pct:0.50, desc:'Cliente notifica el mismo día, con más de 3h de anticipación. Costo 50% (Regla 4).'},
   {v:'noche_previa', label:'Cancelación noche previa', pct:0.25, desc:'Cliente notifica después de las 6:00 p.m. del día inmediatamente anterior. Costo 25% (Regla 5).'},
+  {v:'anticipada', label:'Cancelación anticipada', pct:0, desc:'Cliente notifica antes de las 6:00 p.m. del día inmediatamente anterior, o antes. Sin costo (Regla 6).'},
   // 24/07/2026: pedido explícito de Andersson — cuando es el PROFESOR quien cancela la clase (no el
   // cliente), no debe generarle ningún cobro al cliente, sin importar cuándo se avise. No es una de
   // las 4 reglas de cara al cliente de agosto 2026 — es política interna del negocio; se mantiene
@@ -932,6 +938,11 @@ let STATE = {
   // poder filtrar a una sola semana y no tener que desplazarse por todo el mes (ver renderHorario).
   // Se reinicia a null cada vez que se cambia de mes (ver mesAnterior_/mesSiguiente_ en renderHorario).
   horarioSemana: null,
+  // 02/08/2026: pedido explícito de Andersson — el dashboard de Clientes se veía siempre acotado a
+  // un solo mes (KPIs, resumen por profesor y rankings) y no sabía cómo ver el total histórico.
+  // Con este toggle puede alternar entre "vista mensual" (como antes) y "todo el histórico" sin
+  // perder el mes que tenía seleccionado al volver.
+  clientesVistaHistorico: false,
 };
 function isAdminOverview(){
   return STATE.user && STATE.user.rol==='admin' && STATE.adminViewMode==='admin';
@@ -5908,11 +5919,12 @@ function promedioAnualCliente(clienteId){
   };
 }
 
-// Ranking de clientes (año actual) por total de sesiones completadas o canceladas — para el dashboard del admin.
-function rankingClientes(estado, limite=5){
-  const anio = anioActual();
+// Ranking de clientes por total de sesiones completadas o canceladas — para el dashboard del admin.
+// 02/08/2026: `anio` es opcional — por defecto año actual (como antes); pasar null pide "todo el
+// histórico" sin filtrar por año (pedido explícito de Andersson, ver toggle en renderClientes).
+function rankingClientes(estado, limite=5, anio=anioActual()){
   const counts = {};
-  REGISTROS.filter(r=>r.fecha && r.fecha.startsWith(anio) && (r.estado==='cancelada')===(estado==='cancelada')).forEach(r=>{
+  REGISTROS.filter(r=>r.fecha && (!anio || r.fecha.startsWith(anio)) && (r.estado==='cancelada')===(estado==='cancelada')).forEach(r=>{
     counts[r.clienteId] = (counts[r.clienteId]||0)+1;
   });
   return Object.entries(counts)
@@ -5922,6 +5934,21 @@ function rankingClientes(estado, limite=5){
     .slice(0,limite);
 }
 
+// 02/08/2026: pedido explícito de Andersson — agrupa un conjunto de cancelaciones por tipo (sobre
+// tiempo/del día/noche previa/anticipada/por profesor), de mayor a menor cantidad. Se usa tanto en
+// el dashboard general de Clientes (todas las cancelaciones del negocio) como en la ficha de un
+// cliente puntual (solo las de ese cliente) — mismo criterio, misma función.
+function desgloseCancelacionesPorTipo_(registrosCancelados){
+  const counts = {};
+  registrosCancelados.forEach(r=>{
+    const tipo = r.tipoCancelacion || 'anticipada';
+    counts[tipo] = (counts[tipo]||0)+1;
+  });
+  return Object.entries(counts)
+    .map(([tipo,count])=>({tipo, label:(CANCEL_META[tipo]&&CANCEL_META[tipo].label)||tipo, cls:(CANCEL_META[tipo]&&CANCEL_META[tipo].cls)||'pill-gray', count}))
+    .sort((a,b)=>b.count-a.count);
+}
+
 // Valor real de las clases dictadas por un profesor en un mes, y valor de la pérdida por cancelaciones,
 // usando exactamente las mismas reglas de negocio (precioPorModalidad_) que ya se usan en
 // computeInvoice() para la cuenta de cobro — nunca se inventa ni se aproxima un valor.
@@ -5929,9 +5956,10 @@ function rankingClientes(estado, limite=5){
 // modalidad, cada cliente tiene siempre su propio registro y su propio precio (incluida la sesión
 // semipersonalizada de una pareja, que ya viene a su propio valor real desde la lista de precios), así
 // que sumar cada registro de cada cliente por separado ya da el valor correcto, sin doble conteo.
+// 02/08/2026: monthStr es opcional — pasar null/undefined pide "todo el histórico" sin filtrar por mes.
 function resumenValorProfesorMes(profesorId, monthStr){
   const entriesByClient = {};
-  REGISTROS.filter(r=>r.profesorId===profesorId && r.fecha && r.fecha.startsWith(monthStr)).forEach(r=>{
+  REGISTROS.filter(r=>r.profesorId===profesorId && r.fecha && (!monthStr || r.fecha.startsWith(monthStr))).forEach(r=>{
     (entriesByClient[r.clienteId] = entriesByClient[r.clienteId]||[]).push(r);
   });
   let valorClases = 0, valorPerdida = 0;
@@ -5987,29 +6015,43 @@ function renderClientes(){
   const baseClientes = CLIENTES.filter(c=>c.activo!==false);
   const baseIds = new Set(baseClientes.map(c=>c.id));
   const filtered = baseClientes.filter(c => c.nombre.toLowerCase().includes(clientesSearch.toLowerCase()));
-  const sesionesMes = c => REGISTROS.filter(r=>r.clienteId===c.id && r.fecha && r.fecha.startsWith(STATE.invoiceMonth) && r.estado!=='cancelada').length;
-  const cancelMes = c => REGISTROS.filter(r=>r.clienteId===c.id && r.fecha && r.fecha.startsWith(STATE.invoiceMonth) && r.estado==='cancelada').length;
+  // 02/08/2026: pedido explícito de Andersson — antes el dashboard solo mostraba un mes a la vez y
+  // no había forma de ver el total histórico. Este toggle (STATE.clientesVistaHistorico) hace que
+  // KPIs, resumen por profesor y los 3 rankings ignoren el mes/año y sumen todo lo registrado.
+  const verHistorico = STATE.clientesVistaHistorico;
+  const sesionesMes = c => REGISTROS.filter(r=>r.clienteId===c.id && r.fecha && (verHistorico || r.fecha.startsWith(STATE.invoiceMonth)) && r.estado!=='cancelada').length;
+  const cancelMes = c => REGISTROS.filter(r=>r.clienteId===c.id && r.fecha && (verHistorico || r.fecha.startsWith(STATE.invoiceMonth)) && r.estado==='cancelada').length;
   const histScope = REGISTROS.filter(r=>baseIds.has(r.clienteId));
-  const topCancela = overview ? rankingClientes('cancelada') : [];
-  const topSesiones = overview ? rankingClientes('completada') : [];
+  const topCancela = overview ? rankingClientes('cancelada', 5, verHistorico ? null : anioActual()) : [];
+  const topSesiones = overview ? rankingClientes('completada', 5, verHistorico ? null : anioActual()) : [];
+  // 02/08/2026: pedido explícito de Andersson — desglose de TODAS las cancelaciones del negocio
+  // por tipo, de mayor a menor, para el dashboard del administrador (año actual o histórico según el toggle).
+  const topTiposCancel = overview ? desgloseCancelacionesPorTipo_(REGISTROS.filter(r=>r.estado==='cancelada' && r.fecha && (verHistorico || r.fecha.startsWith(anioActual())))) : [];
 
   el.innerHTML = `
     ${overview ? `
-    <div class="card fade-up" style="padding:12px 16px;display:flex;gap:8px;align-items:center;margin-bottom:12px;width:fit-content;">
+    <div class="card fade-up" style="padding:12px 16px;display:flex;gap:8px;align-items:center;margin-bottom:12px;width:fit-content;flex-wrap:wrap;">
+      ${verHistorico ? `
+      <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
+      <span style="font-size:13.5px;font-weight:600;min-width:150px;text-align:center;">Todo el histórico</span>
+      ` : `
       <button class="btn btn-ghost btn-sm" id="btnClientesMesAnterior" title="Mes anterior" style="padding:2px 8px;font-weight:800;">‹</button>
       <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
       <span style="font-size:13.5px;font-weight:600;min-width:150px;text-align:center;">${nombreMes(STATE.invoiceMonth)}</span>
       <button class="btn btn-ghost btn-sm" id="btnClientesMesSiguiente" title="Mes siguiente" style="padding:2px 8px;font-weight:800;">›</button>
+      `}
+      <span style="width:1px;height:18px;background:var(--line);margin:0 2px;"></span>
+      <button class="btn btn-outline btn-sm" id="btnClientesToggleHistorico" style="padding:4px 10px;font-size:12.5px;">${verHistorico?'Volver a vista mensual':'Ver todo el histórico'}</button>
     </div>
     <div class="fade-up kpi-row">
       <div class="card kpi-card">
         <div class="section-sub">Total clientes</div><div style="font-size:24px;font-weight:800;margin-top:4px;">${baseClientes.length}</div>
       </div>
       <div class="card kpi-card">
-        <div class="section-sub">Sesiones de ${nombreMes(STATE.invoiceMonth)}</div><div style="font-size:24px;font-weight:800;margin-top:4px;color:var(--teal-dark);">${histScope.filter(h=>h.fecha&&h.fecha.startsWith(STATE.invoiceMonth)&&h.estado!=='cancelada').length}</div>
+        <div class="section-sub">${verHistorico?'Sesiones (histórico)':`Sesiones de ${nombreMes(STATE.invoiceMonth)}`}</div><div style="font-size:24px;font-weight:800;margin-top:4px;color:var(--teal-dark);">${histScope.filter(h=>h.fecha&&(verHistorico||h.fecha.startsWith(STATE.invoiceMonth))&&h.estado!=='cancelada').length}</div>
       </div>
       <div class="card kpi-card">
-        <div class="section-sub">Cancelaciones de ${nombreMes(STATE.invoiceMonth)}</div><div style="font-size:24px;font-weight:800;margin-top:4px;color:var(--danger);">${histScope.filter(h=>h.fecha&&h.fecha.startsWith(STATE.invoiceMonth)&&h.estado==='cancelada').length}</div>
+        <div class="section-sub">${verHistorico?'Cancelaciones (histórico)':`Cancelaciones de ${nombreMes(STATE.invoiceMonth)}`}</div><div style="font-size:24px;font-weight:800;margin-top:4px;color:var(--danger);">${histScope.filter(h=>h.fecha&&(verHistorico||h.fecha.startsWith(STATE.invoiceMonth))&&h.estado==='cancelada').length}</div>
       </div>
     </div>
     <div class="card fade-up" style="padding:18px 20px;margin-bottom:20px;">
@@ -6019,24 +6061,24 @@ function renderClientes(){
           <thead><tr style="text-align:left;color:var(--ink-fade);font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;">
             <th style="padding:6px 10px 6px 0;">Profesor</th>
             <th style="padding:6px 10px;">Clases / semana</th>
-            <th style="padding:6px 10px;">Cancelaciones (mes)</th>
+            <th style="padding:6px 10px;">Cancelaciones ${verHistorico?'(histórico)':'(mes)'}</th>
             <th style="padding:6px 10px;">Prom. horas / semana</th>
-            <th style="padding:6px 10px;">Valor clases (mes)</th>
-            <th style="padding:6px 10px;">Pérdida por cancelaciones (mes)</th>
+            <th style="padding:6px 10px;">Valor clases ${verHistorico?'(histórico)':'(mes)'}</th>
+            <th style="padding:6px 10px;">Pérdida por cancelaciones ${verHistorico?'(histórico)':'(mes)'}</th>
           </tr></thead>
           <tbody>
             ${PROFESORES.map(p=>{
               const clasesSemana = SCHEDULE_TEMPLATE.filter(s=>s.profesorId===p.id).length;
-              const cancelacionesMes = REGISTROS.filter(r=>r.profesorId===p.id && r.fecha && r.fecha.startsWith(STATE.invoiceMonth) && r.estado==='cancelada').length;
+              const cancelacionesMes = REGISTROS.filter(r=>r.profesorId===p.id && r.fecha && (verHistorico || r.fecha.startsWith(STATE.invoiceMonth)) && r.estado==='cancelada').length;
               const horasSemana = clasesSemana; // 1h estimada por clase (duración no registrada aún)
-              const { valorClases, valorPerdida } = resumenValorProfesorMes(p.id, STATE.invoiceMonth);
+              const { valorClases, valorPerdida } = resumenValorProfesorMes(p.id, verHistorico ? null : STATE.invoiceMonth);
               return `<tr style="border-top:1px solid var(--line);">
                 <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:700;">${p.nombre}</td>
                 <td data-label="Clases / semana" style="padding:9px 10px;">${clasesSemana}</td>
-                <td data-label="Cancelaciones (mes)" style="padding:9px 10px;${cancelacionesMes?'color:var(--danger);font-weight:700;':''}">${cancelacionesMes}</td>
+                <td data-label="Cancelaciones" style="padding:9px 10px;${cancelacionesMes?'color:var(--danger);font-weight:700;':''}">${cancelacionesMes}</td>
                 <td data-label="Prom. horas / semana" style="padding:9px 10px;">${horasSemana} h</td>
-                <td data-label="Valor clases (mes)" style="padding:9px 10px;font-weight:700;color:var(--teal-dark);">${money(valorClases)}</td>
-                <td data-label="Pérdida por cancelaciones (mes)" style="padding:9px 10px;${valorPerdida?'color:var(--danger);font-weight:700;':''}">${money(valorPerdida)}</td>
+                <td data-label="Valor clases" style="padding:9px 10px;font-weight:700;color:var(--teal-dark);">${money(valorClases)}</td>
+                <td data-label="Pérdida por cancelaciones" style="padding:9px 10px;${valorPerdida?'color:var(--danger);font-weight:700;':''}">${money(valorPerdida)}</td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -6046,23 +6088,33 @@ function renderClientes(){
     <div class="fade-up" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
       <div class="card" style="padding:18px 20px;flex:1;min-width:260px;">
         <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Clientes que más cancelan</div>
-        <div class="section-sub" style="margin-bottom:12px;">Total de cancelaciones en ${anioActual()}</div>
+        <div class="section-sub" style="margin-bottom:12px;">Total de cancelaciones ${verHistorico?'(histórico)':`en ${anioActual()}`}</div>
         ${topCancela.length ? topCancela.map((r,i)=>`
           <div style="display:flex;align-items:center;gap:10px;padding:7px 0;${i? 'border-top:1px solid var(--line);':''}">
             <span style="width:20px;font-size:12px;color:var(--ink-fade);font-weight:700;">${i+1}</span>
             <span style="flex:1;font-size:13px;font-weight:600;">${r.cliente.nombre}</span>
             <span class="pill pill-danger" style="font-size:10.5px;">${r.count} cancelada${r.count===1?'':'s'}</span>
-          </div>`).join('') : `<div class="section-sub" style="padding:10px 0;">Sin cancelaciones registradas en ${anioActual()}.</div>`}
+          </div>`).join('') : `<div class="section-sub" style="padding:10px 0;">Sin cancelaciones registradas ${verHistorico?'':`en ${anioActual()}`}.</div>`}
       </div>
       <div class="card" style="padding:18px 20px;flex:1;min-width:260px;">
         <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Clientes con más sesiones</div>
-        <div class="section-sub" style="margin-bottom:12px;">Total de sesiones completadas en ${anioActual()}</div>
+        <div class="section-sub" style="margin-bottom:12px;">Total de sesiones completadas ${verHistorico?'(histórico)':`en ${anioActual()}`}</div>
         ${topSesiones.length ? topSesiones.map((r,i)=>`
           <div style="display:flex;align-items:center;gap:10px;padding:7px 0;${i? 'border-top:1px solid var(--line);':''}">
             <span style="width:20px;font-size:12px;color:var(--ink-fade);font-weight:700;">${i+1}</span>
             <span style="flex:1;font-size:13px;font-weight:600;">${r.cliente.nombre}</span>
             <span class="pill pill-teal" style="font-size:10.5px;">${r.count} sesión${r.count===1?'':'es'}</span>
-          </div>`).join('') : `<div class="section-sub" style="padding:10px 0;">Sin sesiones completadas en ${anioActual()}.</div>`}
+          </div>`).join('') : `<div class="section-sub" style="padding:10px 0;">Sin sesiones completadas ${verHistorico?'':`en ${anioActual()}`}.</div>`}
+      </div>
+      <div class="card" style="padding:18px 20px;flex:1;min-width:260px;">
+        <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Cancelaciones por tipo</div>
+        <div class="section-sub" style="margin-bottom:12px;">De mayor a menor, todo el negocio ${verHistorico?'(histórico)':`en ${anioActual()}`}</div>
+        ${topTiposCancel.length ? topTiposCancel.map((r,i)=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;${i? 'border-top:1px solid var(--line);':''}">
+            <span style="width:20px;font-size:12px;color:var(--ink-fade);font-weight:700;">${i+1}</span>
+            <span style="flex:1;font-size:13px;font-weight:600;">${r.label}</span>
+            <span class="pill ${r.cls}" style="font-size:10.5px;">${r.count}</span>
+          </div>`).join('') : `<div class="section-sub" style="padding:10px 0;">Sin cancelaciones registradas ${verHistorico?'':`en ${anioActual()}`}.</div>`}
       </div>
     </div>` : ''}
     <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px;">
@@ -6094,12 +6146,18 @@ function renderClientes(){
     </div>
   `;
   if(overview){
-    document.getElementById('btnClientesMesAnterior').addEventListener('click', ()=>{
-      STATE.invoiceMonth = mesAnterior_(STATE.invoiceMonth);
-      renderClientes();
-    });
-    document.getElementById('btnClientesMesSiguiente').addEventListener('click', ()=>{
-      STATE.invoiceMonth = mesSiguiente_(STATE.invoiceMonth);
+    if(!verHistorico){
+      document.getElementById('btnClientesMesAnterior').addEventListener('click', ()=>{
+        STATE.invoiceMonth = mesAnterior_(STATE.invoiceMonth);
+        renderClientes();
+      });
+      document.getElementById('btnClientesMesSiguiente').addEventListener('click', ()=>{
+        STATE.invoiceMonth = mesSiguiente_(STATE.invoiceMonth);
+        renderClientes();
+      });
+    }
+    document.getElementById('btnClientesToggleHistorico').addEventListener('click', ()=>{
+      STATE.clientesVistaHistorico = !STATE.clientesVistaHistorico;
       renderClientes();
     });
   }
@@ -6118,6 +6176,9 @@ function openClienteModal(id){
   const porMes = historialMensualCliente(c.id);
   const mesesOrdenados = Object.keys(porMes).sort();
   const prom = promedioAnualCliente(c.id);
+  // 02/08/2026: pedido explícito de Andersson — mismo desglose por tipo que en el dashboard general,
+  // pero solo de las cancelaciones de ESTE cliente (año actual), de mayor a menor.
+  const desgloseCliente = desgloseCancelacionesPorTipo_(REGISTROS.filter(r=>r.clienteId===c.id && r.estado==='cancelada' && r.fecha && r.fecha.startsWith(anioActual())));
   openModal(`
     <div class="modal-head">
       <h3>Ficha del cliente</h3>
@@ -6174,6 +6235,16 @@ function openClienteModal(id){
             <div class="pill pill-danger" style="font-size:11px;">Promedio ${prom.promCancelaciones.toFixed(1)} cancelaciones / mes</div>
           </div>
           <div class="section-sub" style="margin-top:6px;">Calculado sobre los ${prom.meses} mes${prom.meses===1?'':'es'} transcurridos de ${anioActual()} (${prom.completadas} completadas y ${prom.canceladas} canceladas en total este año).</div>
+          ${desgloseCliente.length ? `
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-weight:700;font-size:12.5px;margin-bottom:8px;">Sus cancelaciones por tipo (${anioActual()}), de mayor a menor</div>
+            ${desgloseCliente.map((r,i)=>`
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 0;${i? 'border-top:1px solid var(--line);':''}">
+                <span style="width:16px;font-size:11.5px;color:var(--ink-fade);font-weight:700;">${i+1}</span>
+                <span style="flex:1;font-size:12.5px;font-weight:600;">${r.label}</span>
+                <span class="pill ${r.cls}" style="font-size:10px;">${r.count}</span>
+              </div>`).join('')}
+          </div>` : ''}
         </div>` : ''}
       </div>
     </div>
