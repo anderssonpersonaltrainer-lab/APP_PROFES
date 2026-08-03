@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-02.7">
+<meta name="app-version" content="2026-08-03.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3972,6 +3972,12 @@ function renderRegistro(){
   const notaFacturacion = (isAdmin && clienteSel && clienteSel.facturarA) ? `<div class="card" style="padding:10px 12px;margin-bottom:14px;background:var(--paper-dim);font-size:12.5px;color:var(--ink-fade);">La cuenta de cobro de ${clienteSel.nombre} se emite a nombre de <b>${clienteSel.facturarA.nombre}</b>.</div>` : '';
 
   el.innerHTML = `
+    <div class="card fade-up" style="padding:12px 16px;display:flex;gap:8px;align-items:center;margin-bottom:14px;width:fit-content;">
+      <button class="btn btn-ghost btn-sm" id="btnRegistroMesAnterior" title="Mes anterior" style="padding:2px 8px;font-weight:800;">‹</button>
+      <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
+      <span style="font-size:13.5px;font-weight:600;min-width:150px;text-align:center;">${nombreMes(STATE.invoiceMonth)}</span>
+      <button class="btn btn-ghost btn-sm" id="btnRegistroMesSiguiente" title="Mes siguiente" style="padding:2px 8px;font-weight:800;">›</button>
+    </div>
     <div class="fade-up" style="position:relative;z-index:2;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px;">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <div style="position:relative;min-width:240px;">
@@ -3997,6 +4003,21 @@ function renderRegistro(){
       </div>` : clientesConSinRegistroMesHTML_(misClientes)}
     </div>
   `;
+  // 03/08/2026: pedido explícito de Andersson — selector de mes (como en Horario/Disponibilidad),
+  // visible para admin y profesor, para que la tabla y el subtotal de "Registro de sesiones" se
+  // acoten a un solo mes en vez de mostrar siempre todo el historial del cliente. Reutiliza
+  // STATE.invoiceMonth (el mismo "mes de trabajo" que ya usaban el dashboard de Clientes y la
+  // cuenta de cobro) para que "Generar cuenta de cobro" quede amarrado al mes que se está viendo
+  // aquí — antes generaba con el mes real de hoy por defecto, aunque se estuviera mirando un mes
+  // anterior, y por eso la fecha de la cuenta salía mal.
+  document.getElementById('btnRegistroMesAnterior').addEventListener('click', ()=>{
+    STATE.invoiceMonth = mesAnterior_(STATE.invoiceMonth);
+    renderRegistro();
+  });
+  document.getElementById('btnRegistroMesSiguiente').addEventListener('click', ()=>{
+    STATE.invoiceMonth = mesSiguiente_(STATE.invoiceMonth);
+    renderRegistro();
+  });
   document.getElementById('regClienteSearch').addEventListener('input', e=>{
     registroClienteSearch = e.target.value;
     reRenderPreserveFocus(renderRegistro, 'regClienteSearch');
@@ -4040,7 +4061,12 @@ function renderRegistro(){
 
 function renderTablaRegistro(){
   const isAdmin = STATE.user.rol==='admin';
-  const rows = REGISTROS.filter(r=>r.clienteId===selectedClienteRegistro).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  // 03/08/2026: pedido explícito de Andersson — antes esta tabla mostraba TODO el historial del
+  // cliente sin importar el mes, y el subtotal sumaba de todos los meses juntos (incluido el mes
+  // anterior). Ahora se acota al mes elegido en el selector de renderRegistro (STATE.invoiceMonth),
+  // igual que ya se acotaban Horario/Disponibilidad — así el subtotal y "Generar cuenta de cobro"
+  // quedan siempre referidos al mismo mes que se está viendo en pantalla.
+  const rows = REGISTROS.filter(r=>r.clienteId===selectedClienteRegistro && r.fecha && r.fecha.startsWith(STATE.invoiceMonth)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const tbl = document.getElementById('tablaRegistro');
   // 23/07/2026: se quitó la distinción "No aplica" — un campo vacío (nunca se tomó el dato) y un
   // campo marcado "No aplica" en registros antiguos se muestran igual, con un simple guion.
@@ -4048,9 +4074,8 @@ function renderTablaRegistro(){
   const cellFor = v => (v===undefined||v===null||v==='') ? dash : v;
   // 25/07/2026: pedido explícito de Andersson — mostrar, al pie de la tabla de "Registro de
   // sesiones", un subtotal de sesiones dictadas vs. canceladas (y el desglose por tipo de
-  // cancelación), para tener de un vistazo el total de este cliente sin tener que contar filas
-  // ni generar la cuenta de cobro. Se calcula sobre TODAS las filas visibles en la tabla (todo el
-  // historial de este cliente, ya que esta vista no filtra por mes).
+  // cancelación) del mes que se está viendo, para tener de un vistazo el total de ese mes sin tener
+  // que contar filas ni generar la cuenta de cobro.
   const totalSesiones = rows.filter(r=>r.estado!=='cancelada').length;
   const cancelRows = rows.filter(r=>r.estado==='cancelada');
   const totalCancelaciones = cancelRows.length;
@@ -4064,19 +4089,18 @@ function renderTablaRegistro(){
   // las MISMAS reglas de la cuenta de cobro real (computeInvoiceValues: tarifa completa por sesión
   // dictada; cancelación 100%/50%/25%/0% según sobre tiempo/del día/noche previa/anticipada, valores
   // en pesos ya sincronizados por cliente desde la lista de precios — reglas de agosto 2026; $0 en
-  // cancelación por profesor). Se suma mes por mes (uno por cada mes distinto que aparezca en esta
-  // tabla), no de una sola vez sobre todo el historial junto. Se usa computeInvoiceValues (NO computeInvoice)
-  // a propósito, para no quemar/incrementar el número de cuenta de cobro solo por renderizar esta
-  // pantalla — nextInvoiceNumero() tiene efecto secundario y debe llamarse solo al generar una
-  // cuenta de cobro real.
+  // cancelación por profesor). 03/08/2026: ahora que la tabla ya está acotada a un solo mes
+  // (STATE.invoiceMonth), el valor se calcula sobre ese mismo mes únicamente. Se usa
+  // computeInvoiceValues (NO computeInvoice) a propósito, para no quemar/incrementar el número de
+  // cuenta de cobro solo por renderizar esta pantalla — nextInvoiceNumero() tiene efecto secundario
+  // y debe llamarse solo al generar una cuenta de cobro real.
   const clienteReg = CLIENTES.find(c=>c.id===selectedClienteRegistro);
   // 30/07/2026: cada cliente (incluidas las parejas que entrenan juntas) tiene siempre su propia
   // cuenta de cobro — ver MODALIDADES_SESION — así que el valor generado se muestra siempre que haya
   // tarifa verificada.
   let valorGenerado = null;
   if(clienteReg && clienteReg.tarifa!=null){
-    const meses = [...new Set(rows.filter(r=>r.fecha).map(r=>r.fecha.slice(0,7)))];
-    valorGenerado = meses.reduce((acc,m)=>acc + computeInvoiceValues(selectedClienteRegistro, m).total, 0);
+    valorGenerado = computeInvoiceValues(selectedClienteRegistro, STATE.invoiceMonth).total;
   }
   tbl.innerHTML = `
     <thead>
@@ -4130,13 +4154,13 @@ function renderTablaRegistro(){
           ${!isAdmin && abierto ? `<button class="btn btn-outline btn-sm" data-completar="${r.id}" style="margin-right:4px;">Clase completada</button>` : ''}
           ${isAdmin ? `<button class="btn btn-outline btn-sm" data-editar-reg="${r.id}" style="margin-right:4px;">Editar</button><button class="btn btn-outline btn-sm" data-eliminar-reg="${r.id}" style="color:var(--danger);border-color:var(--danger);">Eliminar</button>` : ''}
         </td>
-      </tr>`;}).join('') : `<tr><td colspan="15" style="text-align:center;color:var(--ink-fade);padding:30px;">Sin registros aún para este cliente.</td></tr>`}
+      </tr>`;}).join('') : `<tr><td colspan="15" style="text-align:center;color:var(--ink-fade);padding:30px;">Sin registros de ${nombreMes(STATE.invoiceMonth)} para este cliente.</td></tr>`}
     </tbody>
     ${rows.length && isAdmin ? `
     <tfoot>
       <tr>
         <td colspan="15" style="background:var(--paper-dim);font-weight:700;font-size:12.5px;padding:10px 12px;border-top:1.5px solid var(--line);">
-          <div>Subtotal: ${totalSesiones} ${totalSesiones===1?'sesión':'sesiones'} dictada${totalSesiones===1?'':'s'} · ${totalCancelaciones} cancelaci${totalCancelaciones===1?'ón':'ones'}${desgloseCancel?` (${desgloseCancel})`:''}</div>
+          <div>Subtotal de ${nombreMes(STATE.invoiceMonth)}: ${totalSesiones} ${totalSesiones===1?'sesión':'sesiones'} dictada${totalSesiones===1?'':'s'} · ${totalCancelaciones} cancelaci${totalCancelaciones===1?'ón':'ones'}${desgloseCancel?` (${desgloseCancel})`:''}</div>
           <div style="margin-top:3px;color:var(--ink-soft);">${valorGenerado!=null ? `Valor generado para cobrar: <span style="color:var(--ink);">${money(valorGenerado)}</span>` : `Valor no disponible — la tarifa de ${clienteReg?clienteReg.nombre:'este cliente'} no está verificada contra Drive.`}</div>
         </td>
       </tr>
@@ -4348,7 +4372,12 @@ function openAddRegistroModal(){
       if(clienteDelRegistro) appendRegistroToSheet(clienteDelRegistro, nuevoRegistro).then(()=>{ nuevoRegistro.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
     });
     closeModal();
-    renderTablaRegistro();
+    // 03/08/2026: la tabla ahora se acota al mes de STATE.invoiceMonth (ver renderTablaRegistro) —
+    // si el registro guardado quedó en un mes distinto al que se estaba viendo (ej. se agregó una
+    // sesión de hoy mientras se revisaba un mes anterior), se cambia el mes visible a ese mismo mes
+    // para que el registro recién guardado aparezca de inmediato en vez de "desaparecer".
+    const mesRegistro = fecha.slice(0,7);
+    if(mesRegistro !== STATE.invoiceMonth){ STATE.invoiceMonth = mesRegistro; renderRegistro(); } else { renderTablaRegistro(); }
     toast(registroCompaneros.length ? `Registro guardado para ${grupoIds.length} clientes (sesión conjunta)` : 'Registro de sesión guardado', 'success');
   });
 }
@@ -4760,7 +4789,11 @@ function openEditarRegistroModal(registroId){
       if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).then(()=>{ r2.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
     });
     closeModal();
-    renderTablaRegistro();
+    // 03/08/2026: mismo criterio que al guardar un registro nuevo — si la fecha editada quedó en un
+    // mes distinto al que se estaba viendo, se cambia el mes visible a ese para que el registro no
+    // "desaparezca" de la tabla (que ahora está acotada por mes, ver renderTablaRegistro).
+    const mesRegistro = nuevaFecha.slice(0,7);
+    if(mesRegistro !== STATE.invoiceMonth){ STATE.invoiceMonth = mesRegistro; renderRegistro(); } else { renderTablaRegistro(); }
     toast(companionRegistros.length ? `Registro actualizado para ${1+companionRegistros.length} clientes (sesión conjunta)` : 'Registro actualizado', 'success');
   });
 }
@@ -4837,7 +4870,10 @@ function openEditarCancelacionModal(registroId){
     { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
     saveState();
     closeModal();
-    renderTablaRegistro();
+    // 03/08/2026: mismo criterio que al guardar/editar un registro normal — si la fecha corregida
+    // quedó en otro mes, se cambia el mes visible para que no "desaparezca" de la tabla.
+    const mesRegistro = r.fecha.slice(0,7);
+    if(mesRegistro !== STATE.invoiceMonth){ STATE.invoiceMonth = mesRegistro; renderRegistro(); } else { renderTablaRegistro(); }
     toast('Cancelación actualizada', 'success');
   });
 }
