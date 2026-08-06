@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-03.2">
+<meta name="app-version" content="2026-08-03.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1695,6 +1695,15 @@ async function gasGuardarScheduleOverride_(slot){
     console.warn('gasGuardarScheduleOverride_ falló (el cambio queda guardado solo en este dispositivo por ahora, se reintentará solo más adelante):', e);
   }
 }
+// 03/08/2026: contraparte de gasGuardarScheduleOverride_ — borra el override del lado del servidor
+// (ver openEliminarClaseProgramadaModal). Sin esto, aunque se borre localmente, el override seguiría
+// existiendo en "_HorarioExcepciones" y volvería a aparecer la próxima vez que se reaplican los
+// overrides sobre el mes (en este dispositivo o en cualquier otro).
+async function gasEliminarScheduleOverride_(id){
+  if(!gasConfigured()) return;
+  try{ await gasCall('deleteScheduleOverride', null, {id}); }
+  catch(e){ console.warn('gasEliminarScheduleOverride_ falló (el cambio queda eliminado solo en este dispositivo por ahora):', e); }
+}
 // Trae TODOS los cambios puntuales que cualquier dispositivo haya guardado en el Apps Script, los
 // aplica sobre los meses ya expandidos en este dispositivo, y re-renderiza si corresponde. Se llama
 // sola al abrir la app (junto a loadPublishedSchedule) y periódicamente mientras la app sigue
@@ -3110,6 +3119,13 @@ function claseCardHTML(s){
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
       <span class="pill pill-teal">Programada</span>
       ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" data-reasignar="${s.id}" onclick="event.stopPropagation();openReasignarModal('${s.id}')">Reasignar profesor</button>`:''}
+      <!-- 03/08/2026: pedido explícito de Andersson — si programó una sesión única en el día/hora
+      equivocado, necesita poder quitarla sin que quede como una cancelación (eso afectaría la
+      cuenta de cobro y las estadísticas del cliente por algo que nunca debió existir). Solo
+      aplica a sesiones creadas con "Programar cliente" (s.programadoPorAdmin) — una clase normal
+      de la plantilla recurrente sigue usando "Cancelar" como corresponde, porque esa sí representa
+      un compromiso real con el cliente. -->
+      ${isAdminOverview() && programada?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;color:var(--danger);border-color:var(--danger);" data-eliminar-clase="${s.id}" onclick="event.stopPropagation();openEliminarClaseProgramadaModal('${s.id}')">Eliminar</button>`:''}
     </div>
   </div>`;
 }
@@ -3185,6 +3201,50 @@ function openReasignarModal(id){
     // junto a la declaración de SCHEDULE_OVERRIDES.
     gasGuardarScheduleOverride_(s);
     toast(`Clase asignada a ${profesorNombre(nuevoProfesorId)}.`, 'success');
+  });
+}
+
+// 03/08/2026: pedido explícito de Andersson — "agendé una sesión en el día que no es, ¿cómo la
+// elimino sin que salga cancelación al cliente?". Solo aplica a sesiones creadas con "Programar
+// cliente" (s.programadoPorAdmin) — se quita por completo, no se registra ninguna cancelación en
+// REGISTROS, así que no afecta la cuenta de cobro ni las estadísticas del cliente/profesor. También
+// borra el override correspondiente en el servidor (gasEliminarScheduleOverride_) para que no
+// reaparezca solo en otro dispositivo o al resincronizar.
+function openEliminarClaseProgramadaModal(id){
+  const s = SCHEDULE.find(x=>x.id===id);
+  if(!s || !s.programadoPorAdmin) return;
+  openModal(`
+    <div class="modal-head">
+      <h3>Eliminar sesión programada</h3>
+      <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
+    </div>
+    <div class="modal-body">
+      <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
+        <div style="font-weight:700;">${nombreParaMostrar_(s)}</div>
+        <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora}${s.horaFin?'–'+s.horaFin:''} · ${s.tipo} · ${profesorNombre(s.profesorId)}</div>
+      </div>
+      <div class="card" style="padding:12px 14px;background:#FEF2F2;border:1.5px solid #FCA5A5;">
+        <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:4px;">Esta acción no se puede deshacer</div>
+        <div style="font-size:12.5px;color:var(--ink-soft);">Se quita esta sesión programada por completo — a diferencia de "Cancelar", NO queda ningún registro de cancelación, no afecta la cuenta de cobro ni las estadísticas de ${nombreParaMostrar_(s)}. Úsalo solo cuando la programaste por error (día/hora equivocado).</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" id="btnConfirmEliminarClase">Eliminar definitivamente</button>
+    </div>
+  `);
+  document.getElementById('btnConfirmEliminarClase').addEventListener('click', ()=>{
+    const idx = SCHEDULE.findIndex(x=>x.id===id);
+    if(idx>=0) SCHEDULE.splice(idx,1);
+    const ovIdx = SCHEDULE_OVERRIDES.findIndex(o=>o.id===id);
+    if(ovIdx>=0) SCHEDULE_OVERRIDES.splice(ovIdx,1);
+    saveState();
+    gasEliminarScheduleOverride_(id);
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Sesión programada eliminada', cuerpo:`Se eliminó (por error de programación) la sesión de ${nombreParaMostrar_(s)} del ${fmtFechaCorta(s.fecha)} ${s.hora}, por ${STATE.user.nombre}. No queda como cancelación.`, hora:'Ahora', leido:false});
+    renderNotifDrawer();
+    closeModal();
+    renderHorario();
+    toast('Sesión programada eliminada — no queda registrada como cancelación.', 'success');
   });
 }
 
