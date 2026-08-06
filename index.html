@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-03.1">
+<meta name="app-version" content="2026-08-03.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1445,6 +1445,30 @@ function buildScheduleFromGridData(data){
     vistos.push(entry);
     dedupClientes.push(entry);
   });
+  const disponiblesNuevo = otrosNuevo
+    .filter(e=>e.tipo==='Disponible')
+    .sort((a,b)=> `${a.profesorId}|${a.dia}|${a.hora}`.localeCompare(`${b.profesorId}|${b.dia}|${b.hora}`));
+  const otrosNoDisponibles = otrosNuevo.filter(e=>e.tipo!=='Disponible');
+  // 03/08/2026 — bug real reportado por Andersson (con captura + verificado contra el Excel crudo de
+  // Drive vía el endpoint ?action=schedule): un bloque "Disponible" quedaba fijo hasta el borde de SU
+  // PROPIA fila de la cuadrícula (bloque.fin, ej. la fila "5:00 PM - 6:00 pm" con el texto "Disponible
+  // 17:20" quedaba 17:20–18:00), aunque la siguiente sesión real no empezara sino hasta más tarde (ej.
+  // "Jineth Prieto y Santiago Agreda 18:40" en la fila siguiente, con su hora real 18:40 embebida en el
+  // texto igual que "Disponible 17:20"). Regla correcta (la de siempre, ahora sí aplicada): un
+  // "Disponible" dura hasta el INICIO de la siguiente sesión real (clase, Desplazamiento o Almuerzo) de
+  // ese mismo profesor/día, no hasta el borde de su fila. Se extiende aquí el horaFin de cada
+  // "Disponible" a la hora de inicio de la siguiente ocupación real, si esa hora es más tarde que
+  // bloque.fin — antes de la unión de filas "Disponible" seguidas de abajo.
+  const ocupacionesPorProfesorDia_ = {};
+  [...dedupClientes, ...otrosNoDisponibles].forEach(e=>{
+    (ocupacionesPorProfesorDia_[`${e.profesorId}|${e.dia}`] = ocupacionesPorProfesorDia_[`${e.profesorId}|${e.dia}`]||[]).push(e);
+  });
+  Object.values(ocupacionesPorProfesorDia_).forEach(arr=>arr.sort((a,b)=>a.hora.localeCompare(b.hora)));
+  disponiblesNuevo.forEach(entry=>{
+    const ocupaciones = ocupacionesPorProfesorDia_[`${entry.profesorId}|${entry.dia}`] || [];
+    const siguiente = ocupaciones.find(o=>o.hora>entry.hora);
+    if(siguiente && siguiente.hora>entry.horaFin) entry.horaFin = siguiente.hora;
+  });
   // 30/07/2026 — pedido explícito de Andersson: en Drive cada hora "Disponible" sigue escribiéndose en
   // su propia celda (una fila por hora, como siempre lo ha hecho — no tiene que combinar celdas). Pero
   // mostrarlo partido en pedazos de una hora ("6:00 Disponible", "7:00 Disponible"...) no refleja el
@@ -1453,10 +1477,6 @@ function buildScheduleFromGridData(data){
   // del mismo profesor y mismo día (donde el fin de una coincide exactamente con el inicio de la
   // siguiente, sin huecos) en una sola entrada con el rango completo — así el bloque del sábado de
   // Daniel (6 a 8, dos filas de una hora) queda como un solo "Disponible 06:00–08:00".
-  const disponiblesNuevo = otrosNuevo
-    .filter(e=>e.tipo==='Disponible')
-    .sort((a,b)=> `${a.profesorId}|${a.dia}|${a.hora}`.localeCompare(`${b.profesorId}|${b.dia}|${b.hora}`));
-  const otrosNoDisponibles = otrosNuevo.filter(e=>e.tipo!=='Disponible');
   const disponiblesUnidos = [];
   disponiblesNuevo.forEach(entry=>{
     const anterior = disponiblesUnidos[disponiblesUnidos.length-1];
