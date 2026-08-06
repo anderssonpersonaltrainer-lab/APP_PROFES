@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-03.3">
+<meta name="app-version" content="2026-08-06.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2163,15 +2163,25 @@ let _clienteDatosSyncTimer = null;
 function _schedulePeriodicClienteDatosSync(){
   if(_clienteDatosSyncTimer) clearInterval(_clienteDatosSyncTimer);
   _clienteDatosSyncTimer = setInterval(()=>{
-    syncClienteDatosFromDrive().catch(e=>console.warn('Sync periódico de clientes falló:', e));
     // 31/07/2026: misma cadencia de 6 horas para la lista de precios maestra — no cambia con
     // frecuencia, así que no hace falta revisarla más seguido que el resto de datos del cliente.
     // 02/08/2026: la base de usuarios (y la detección de clientes nuevos) va ENCADENADA antes de la
     // lista de precios (con .then, no en paralelo) — así, si esta pasada crea un cliente nuevo, ya
     // existe en CLIENTES para cuando corre el cruce de precios justo después, en el mismo ciclo.
+    // 06/08/2026 — bug real reportado por Andersson: creó a Marcela Rocío Marquez (carpeta + Sheets
+    // en Drive) y su Anamnesis no aparecía en la app aunque el archivo estaba perfecto (verificado
+    // contra el endpoint crudo `clienteExcel`, que sí lo leía bien). Causa: `syncClienteDatosFromDrive`
+    // (Anamnesis) corría SUELTA, en paralelo con `syncBaseClientesDesdeSheet_` (que es quien crea al
+    // cliente nuevo) en vez de ir encadenada DESPUÉS como ya se hacía con la lista de precios — así
+    // que en la misma pasada donde se creaba un cliente nuevo, su Anamnesis nunca se llegaba a pedir
+    // (su `for(const cliente of CLIENTES)` ya había arrancado, o ya había terminado, sin que ese
+    // cliente nuevo existiera todavía). Se necesitaba una segunda pasada completa (6 horas después, o
+    // un segundo cierre+reingreso) para que por fin apareciera. Corrección: ahora `syncClienteDatosFromDrive`
+    // también va encadenada después de `syncBaseClientesDesdeSheet_`, igual que la lista de precios —
+    // un cliente recién creado recibe su tarifa Y su Anamnesis en la misma pasada donde se crea.
     syncBaseClientesDesdeSheet_()
-      .then(()=>syncListaPreciosDesdeSheet_())
-      .catch(e=>console.warn('Sync periódico de base de usuarios/lista de precios falló:', e));
+      .then(()=>Promise.all([syncListaPreciosDesdeSheet_(), syncClienteDatosFromDrive()]))
+      .catch(e=>console.warn('Sync periódico de base de usuarios/lista de precios/anamnesis falló:', e));
   }, 6*60*60*1000);
 }
 // 26/07/2026: los cambios puntuales de horario (Programar cliente/Reasignar profesor/Agendar
@@ -2554,16 +2564,22 @@ function bootApp(startModule){
   // presionar "Reenviar cambios a todos" a mano, y cubre igual las cancelaciones de clase (que
   // cualquier profesor puede hacer, no solo el administrador).
   _intentarReenvioAutomaticoDeCambiosLocales_();
-  syncClienteDatosFromDrive().catch(e=>console.warn('Sync inicial de anamnesis/tarifas falló:', e));
   // 31/07/2026: sync inicial de la lista de precios maestra (además del ciclo cada 6h de abajo) — así
   // un cambio reciente en Drive (como el que Andersson acaba de hacer) se aplica apenas alguien abre
   // la app, sin tener que esperar hasta 6 horas ni pedir un paso manual aparte.
   // 02/08/2026: igual que en el ciclo periódico, la base de usuarios (con detección de clientes
   // nuevos) va encadenada antes de la lista de precios, para que un cliente recién creado ya reciba
   // su tarifa en esta misma pasada inicial.
+  // 06/08/2026 — bug real reportado por Andersson: creó a Marcela Rocío Marquez (carpeta + Sheets en
+  // Drive) y su Anamnesis no aparecía en la app pese a estar perfecta en Drive. Causa:
+  // `syncClienteDatosFromDrive` (que trae la Anamnesis) corría SUELTA, antes/en paralelo con
+  // `syncBaseClientesDesdeSheet_` (quien crea al cliente nuevo) — así que en la misma sesión donde se
+  // detectaba y creaba el cliente, su Anamnesis nunca se pedía (todavía no existía en CLIENTES cuando
+  // el `for` de syncClienteDatosFromDrive corrió). Ahora va encadenada DESPUÉS, igual que ya se hacía
+  // con la lista de precios — mismo criterio, mismo arreglo.
   syncBaseClientesDesdeSheet_()
-    .then(()=>syncListaPreciosDesdeSheet_())
-    .catch(e=>console.warn('Sync inicial de base de usuarios/lista de precios falló:', e));
+    .then(()=>Promise.all([syncListaPreciosDesdeSheet_(), syncClienteDatosFromDrive()]))
+    .catch(e=>console.warn('Sync inicial de base de usuarios/lista de precios/anamnesis falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
   // 27/07/2026: además del refresco puntual de arriba (solo el último cliente visto en ESTE
