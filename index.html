@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-09.2">
+<meta name="app-version" content="2026-08-09.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -6311,6 +6311,14 @@ function openClienteModal(id){
   // 02/08/2026: pedido explícito de Andersson — mismo desglose por tipo que en el dashboard general,
   // pero solo de las cancelaciones de ESTE cliente (año actual), de mayor a menor.
   const desgloseCliente = desgloseCancelacionesPorTipo_(REGISTROS.filter(r=>r.clienteId===c.id && r.estado==='cancelada' && r.fecha && r.fecha.startsWith(anioActual())));
+  // 09/08/2026 — bug real reportado por Andersson: la Anamnesis de un cliente nuevo (auto-creado por
+  // syncBaseClientesDesdeSheet_) nunca aparecía en esta ficha, aunque el PDF de "Descargar" sí la traía
+  // bien. Causa: el texto de abajo mostraba c.diagnostico, un resumen escrito A MANO una sola vez para
+  // cada cliente original del traspaso, que ningún sync automático actualiza (no hay ninguna asignación
+  // a esa propiedad fuera de la declaración inicial). Lo que sí se sincroniza solo desde Drive es
+  // c.anamnesisCompleta (via syncClienteDatosFromDrive), antes solo usado en el PDF. Ahora, si diagnostico
+  // sigue en su valor por defecto y ya hay una Anamnesis sincronizada, se muestra esa en su lugar — los
+  // resúmenes ya escritos a mano para clientes existentes se preservan tal cual.
   openModal(`
     <div class="modal-head">
       <h3>Ficha del cliente</h3>
@@ -6334,17 +6342,6 @@ function openClienteModal(id){
           <span style="width:16px;height:16px;margin-top:2px;color:var(--danger);display:inline-flex">${ICONS.heart}</span>
           <div style="flex:1;">
             <div style="font-size:11.5px;color:var(--ink-fade);">Diagnóstico completo (Anamnesis)</div>
-            <!-- 09/08/2026 — bug real reportado por Andersson: la Anamnesis de un cliente nuevo
-            (auto-creado por syncBaseClientesDesdeSheet_) nunca aparecía aquí, aunque el PDF ("Descargar
-            PDF" abajo) SÍ la traía bien. Causa: este texto mostraba `c.diagnostico` — un resumen escrito
-            A MANO una sola vez para cada cliente original del traspaso, que NINGÚN sync automático
-            actualiza (ver que no hay ni un solo `.diagnostico =` en todo el código, solo la asignación
-            inicial). El texto que SÍ se sincroniza solo de Drive es `c.anamnesisCompleta` (via
-            syncClienteDatosFromDrive), pero antes solo se usaba en el PDF, nunca aquí. Ahora, si
-            `diagnostico` sigue en su valor por defecto (nunca se le escribió un resumen a mano) y ya hay
-            una Anamnesis sincronizada, se muestra esa — así un cliente nuevo no se queda mostrando "En
-            creación..." para siempre. Los resúmenes ya escritos a mano para clientes existentes se
-            preservan tal cual (no se tocan). -->
             <div style="font-size:13.5px;font-weight:600;line-height:1.5;white-space:pre-wrap;">${(c.diagnostico===NO_ANAMNESIS && c.anamnesisCompleta) ? c.anamnesisCompleta : c.diagnostico}</div>
             <button class="btn btn-outline btn-sm" id="btnDescargarAnamnesis" style="margin-top:10px;">
               <span style="width:13px;height:13px;display:inline-flex">${ICONS.download}</span>Descargar PDF (Anamnesis completa)
