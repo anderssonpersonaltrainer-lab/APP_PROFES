@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-09.3">
+<meta name="app-version" content="2026-08-09.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1021,6 +1021,20 @@ function loadState(){
           if(anterior.tarifa!=null) c.tarifa = anterior.tarifa;
           if(anterior.anamnesisCompleta) c.anamnesisCompleta = anterior.anamnesisCompleta;
           if(anterior.activo===false) c.activo = false;
+        });
+        // 09/08/2026 — BUG REAL, causa de que la Anamnesis de un cliente nuevo nunca apareciera:
+        // los clientes AUTO-CREADOS (syncBaseClientesDesdeSheet_, ej. Marcela Rocío Marquez) solo
+        // existen en el guardado local de cada dispositivo — nunca en el arreglo CLIENTES del código.
+        // Al llegar una versión nueva de la app, este bloque partía del arreglo del código y los
+        // descartaba por completo; enseguida se volvían a crear desde cero, sin su Anamnesis, y había
+        // que esperar los ~86 segundos que tarda la resincronización completa (medido: ~1.9s por
+        // cliente x ~45 clientes). Como cada publicación repetía el ciclo, en la práctica nunca
+        // alcanzaba a verse. Ahora se conservan tal cual. Es seguro distinguirlos por el id: los del
+        // código son 'c1'..'c45' y los auto-creados siempre empiezan por 'd' (derivado del id real de
+        // su carpeta de Drive), así que esto nunca revive a un cliente quitado del código a propósito.
+        const idsEnCodigo = new Set(CLIENTES.map(c=>c.id));
+        data.CLIENTES.forEach(c=>{
+          if(c && c.id && /^d/.test(c.id) && !idsEnCodigo.has(c.id)) CLIENTES.push(c);
         });
       }
     }
@@ -6303,6 +6317,47 @@ function renderClientes(){
   });
 }
 
+// 09/08/2026: escapa el texto antes de insertarlo como HTML — la Anamnesis viene de un Sheet que
+// escribe una persona, así que puede traer "<", "&" o similares que romperían el renderizado.
+function escaparHtml_(s){
+  return String(s==null?'':s).split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
+}
+// Texto que se muestra en el campo "Diagnóstico completo (Anamnesis)" de la ficha.
+// 09/08/2026: se prioriza SIEMPRE anamnesisCompleta (el texto real sincronizado desde el Sheet
+// "Anamnesis_[Cliente]" de Drive) sobre `diagnostico` — pedido explícito de Andersson: antes,
+// `diagnostico` era un resumen escrito a mano una sola vez que ningún sync actualiza nunca, así que
+// una Anamnesis corregida en Drive no se reflejaba jamás en la app, ni para clientes existentes ni
+// para nuevos. `diagnostico` queda solo como respaldo mientras la Anamnesis real no esté disponible.
+function textoAnamnesisFicha_(c){
+  if(c && c.anamnesisCompleta) return c.anamnesisCompleta;
+  return (c && c.diagnostico) || NO_ANAMNESIS;
+}
+// 09/08/2026: trae la Anamnesis de ESTE cliente puntual en el momento de abrir su ficha (~2 segundos,
+// una sola llamada) en vez de depender del barrido completo de todos los clientes, que tarda ~86
+// segundos y corre en segundo plano. Así el texto aparece siempre, y además queda siempre al día:
+// si alguien corrige la Anamnesis en Drive, se ve al volver a abrir la ficha. Mantiene intacta la
+// regla de seguridad de anamnesisPerteneceACliente (nunca aplicar el texto de otra persona).
+async function refrescarAnamnesisFicha_(c){
+  const destino = () => document.getElementById('anamnesisTextoFicha');
+  if(!c || !c.drive || !gasConfigured()) return;
+  const el0 = destino();
+  if(el0 && !c.anamnesisCompleta) el0.innerHTML = '<span style="color:var(--ink-fade);font-weight:500;">Cargando la Anamnesis desde Drive…</span>';
+  try{
+    const resp = await gasCall('clienteExcel', {folderId: c.drive});
+    if(resp && resp.found && !resp.error){
+      const texto = (resp.anamnesis || '').trim();
+      if(texto && anamnesisPerteneceACliente(texto, c) && texto !== c.anamnesisCompleta){
+        c.anamnesisCompleta = texto;
+        saveState();
+      }
+    }
+  }catch(e){
+    console.warn('No se pudo refrescar la Anamnesis de', c.nombre, e);
+  }
+  const el = destino();
+  if(el) el.innerHTML = escaparHtml_(textoAnamnesisFicha_(c));
+}
+
 function openClienteModal(id){
   const c = CLIENTES.find(x=>x.id===id);
   const porMes = historialMensualCliente(c.id);
@@ -6342,7 +6397,7 @@ function openClienteModal(id){
           <span style="width:16px;height:16px;margin-top:2px;color:var(--danger);display:inline-flex">${ICONS.heart}</span>
           <div style="flex:1;">
             <div style="font-size:11.5px;color:var(--ink-fade);">Diagnóstico completo (Anamnesis)</div>
-            <div style="font-size:13.5px;font-weight:600;line-height:1.5;white-space:pre-wrap;">${(c.diagnostico===NO_ANAMNESIS && c.anamnesisCompleta) ? c.anamnesisCompleta : c.diagnostico}</div>
+            <div id="anamnesisTextoFicha" style="font-size:13.5px;font-weight:600;line-height:1.5;white-space:pre-wrap;">${escaparHtml_(textoAnamnesisFicha_(c))}</div>
             <button class="btn btn-outline btn-sm" id="btnDescargarAnamnesis" style="margin-top:10px;">
               <span style="width:13px;height:13px;display:inline-flex">${ICONS.download}</span>Descargar PDF (Anamnesis completa)
             </button>
@@ -6395,6 +6450,7 @@ function openClienteModal(id){
     </div>
   `);
   document.getElementById('btnDescargarAnamnesis').addEventListener('click', ()=>downloadAnamnesisPDF(c.id));
+  refrescarAnamnesisFicha_(c);
 }
 
 function openCerrarClienteModal(clienteId){
@@ -6448,11 +6504,16 @@ function cerrarClienteDefinitivo(clienteId, motivo){
   toast(`${c.nombre} quedó cerrado definitivamente. Su horario recurrente fue actualizado.`, 'success');
 }
 
-function downloadAnamnesisPDF(clienteId){
+async function downloadAnamnesisPDF(clienteId){
   const c = CLIENTES.find(x=>x.id===clienteId);
   const btn = document.getElementById('btnDescargarAnamnesis');
   const original = btn ? btn.innerHTML : null;
   if(btn){ btn.innerHTML = 'Generando…'; btn.disabled = true; }
+  // 09/08/2026: si todavía no se trajo la Anamnesis de este cliente (ej. se presionó "Descargar" en
+  // los primeros segundos tras abrir la ficha, antes de que terminara refrescarAnamnesisFicha_), se
+  // espera aquí a traerla — antes el PDF salía con la nota de "no hay Anamnesis disponible" aunque
+  // en Drive sí existiera.
+  if(c && !c.anamnesisCompleta) await refrescarAnamnesisFicha_(c);
   try{
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF('p','pt','a4');
