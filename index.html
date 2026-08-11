@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-10.3">
+<meta name="app-version" content="2026-08-11.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1579,12 +1579,43 @@ function expandTemplateForMonth_(year, monthIdx0){
 // (viene de la plantilla, mismo id) se le encima el cambio; si no existe todavía (ej. un masaje
 // agendado, que no viene de ninguna plantilla) se agrega como fila nueva. Se puede llamar tantas
 // veces como haga falta sin duplicar nada — siempre busca por `id` primero.
+// 11/08/2026 — ¿la fila que encontré por id es REALMENTE la misma cita que este cambio guardado?
+// Ver la nota completa en applyScheduleOverridesToMonth_. Un override de un CLIENTE nunca puede
+// corresponder a un bloque sin cliente (Disponible/Almuerzo/Desplazamiento) ni a otro cliente.
+function _overrideCorrespondeAFila_(fila, o){
+  if(!o.clienteId) return true;      // override sin cliente: se conserva el comportamiento de siempre
+  if(!fila.clienteId) return false;  // la fila es un bloque libre/especial: NO es la misma cita
+  return fila.clienteId === o.clienteId;
+}
 function applyScheduleOverridesToMonth_(year, monthIdx0){
   const mesStr = `${year}-${pad(monthIdx0+1)}`;
   SCHEDULE_OVERRIDES.forEach(o=>{
     if(!o || !o.fecha || !o.fecha.startsWith(mesStr)) return;
-    const existente = SCHEDULE.find(x=>x.id===o.id);
-    const entry = existente ? Object.assign(existente, o) : Object.assign({}, o);
+    let existente = SCHEDULE.find(x=>x.id===o.id);
+    // 11/08/2026 — BUG REAL reportado por Andersson: corrigió en el Excel de Drive la disponibilidad
+    // de Karen (martes y jueves ahora desde las 6:00, antes 6:30) y le dio "Actualizar horario". El
+    // martes tomó bien el cambio; el jueves NO: seguía mostrando el espacio libre desde las 6:30.
+    // Causa: los ids de las filas del horario son POSICIONALES — `dr` + un contador que recorre las
+    // celdas de la cuadrícula (ver buildScheduleFromGridData). Al agregar la celda "Disponible 6", la
+    // numeración se corrió: la clase de Alejandro del jueves pasó de `dr72` a `dr77`, y `dr72` pasó a
+    // ser el bloque "Disponible 06:00-07:00". Pero la cancelación de Alejandro estaba guardada como
+    // `dr72_2026-08-13`, así que al aplicarse le caía ENCIMA al bloque disponible y lo reemplazaba
+    // por una clase cancelada de 6:30 — desapareciendo el pedazo libre de 6:00 a 6:30.
+    // Esto NO es culpa de quien edita el Excel: editar el horario es justamente lo que el
+    // administrador debe poder hacer. Corrección: antes de aplicar un cambio guardado sobre una fila,
+    // se comprueba que de verdad sea la misma cita; si el id se corrió, se busca la fila correcta por
+    // fecha + cliente (y se prefiere la de la misma hora). Si no se encuentra, NO se aplica — mejor
+    // perder de vista un cambio puntual que corromper el horario (y las cancelaciones tienen además
+    // su propio respaldo independiente vía REGISTROS, ver aplicarCancelacionRegistrada_).
+    let idDestino = null;
+    if(existente && !_overrideCorrespondeAFila_(existente, o)){
+      const candidatas = SCHEDULE.filter(x=> x.fecha===o.fecha && x.clienteId && x.clienteId===o.clienteId);
+      const correcta = candidatas.find(x=>x.hora===o.hora) || candidatas[0] || null;
+      if(!correcta) return;              // ninguna fila corresponde: no se toca nada
+      existente = correcta;
+      idDestino = correcta.id;           // se conserva el id REAL de la fila, no el del override corrido
+    }
+    const entry = existente ? Object.assign(existente, o, idDestino?{id:idDestino}:{}) : Object.assign({}, o);
     if(!existente) SCHEDULE.push(entry);
     // 30/07/2026 (noche) — bug real reportado: Andersson programó a Carolina Sarmiento en el horario
     // de Karen (con "Programar cliente"), Karen canceló esa clase, y la cancelación se veía bien en
