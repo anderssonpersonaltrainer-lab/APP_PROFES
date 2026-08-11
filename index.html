@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-09.4">
+<meta name="app-version" content="2026-08-10.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2274,15 +2274,42 @@ async function deleteRegistroRowInSheet(cliente, registroId){
   return gasCall('deleteRegistro', null, {folderId:cliente.drive, nombre:cliente.nombre, registroId});
 }
 
+// 10/08/2026 — BUG REAL reportado por Andersson: registró la clase de Catalina, presionó "Clase
+// completada" (se guardó bien), y al volver a entrar aparecía de nuevo como "Falta cierre". Causa:
+// en la hoja de Drive el MISMO registro existía DOS VECES con el mismo id — una fila 'cerrado' (el
+// cierre real, con su detalle) y otra 'abierto' agregada después (una reposición tardía del alta
+// original; ver appendRegistroAction_ en el .gs, que agregaba sin comprobar si el id ya existía).
+// Como este bucle procesaba las filas en orden y la última pisaba a la anterior, ganaba la 'abierto'
+// y el cierre se perdía de vista. Se revisaron las 267 filas de los 45 clientes: era el único caso.
+// Esta función decide, entre filas repetidas con el mismo id, cuál es la BUENA: manda el estado más
+// avanzado (cancelada > cerrado > abierto) y, a igualdad, la que traiga más campos con datos. Así el
+// cierre nunca se pierde aunque vuelva a aparecer una fila duplicada.
+function _puntajeFilaRegistro_(r){
+  const rank = r.estado==='cancelada' ? 3 : r.estado==='cerrado' ? 2 : r.estado==='abierto' ? 1 : 0;
+  let llenos = 0;
+  Object.keys(r).forEach(k=>{
+    const v = r[k];
+    if(v!=='' && v!==undefined && v!==null && v!==false) llenos++;
+  });
+  return rank*1000 + llenos;
+}
+function dedupeFilasRemotas_(registros){
+  const mejorPorId = new Map();
+  registros.forEach(r=>{
+    if(!r || !r.id) return;
+    const previo = mejorPorId.get(r.id);
+    if(!previo || _puntajeFilaRegistro_(r) > _puntajeFilaRegistro_(previo)) mejorPorId.set(r.id, r);
+  });
+  return Array.from(mejorPorId.values());
+}
 async function pullRegistrosForCliente(cliente){
   if(!cliente || !cliente.drive || !gasConfigured()) return;
   try{
     const resp = await gasCall('registros', {folderId:cliente.drive, nombre:cliente.nombre});
     if(!resp || !Array.isArray(resp.rows)) return;
     const idsRemotos = new Set();
-    resp.rows.forEach(row=>{
-      if(!row || !row[0]) return;
-      const remote = rowToRegistro(row, cliente.id);
+    const remotosUnicos = dedupeFilasRemotas_(resp.rows.filter(row=>row && row[0]).map(row=>rowToRegistro(row, cliente.id)));
+    remotosUnicos.forEach(remote=>{
       // 31/07/2026: cualquier fila que venga de Drive, por definición, ya está sincronizada — se
       // marca aquí para que la protección de abajo (no borrar filas que todavía no se han
       // confirmado subidas) funcione también para las filas que YA estaban guardadas desde antes
