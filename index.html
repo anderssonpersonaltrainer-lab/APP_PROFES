@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-10.2">
+<meta name="app-version" content="2026-08-10.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1884,6 +1884,21 @@ async function syncScheduleFromDrive(){
     _lastScheduleSyncAt = new Date().toISOString();
     if(resultado.sinCoincidencia.length){
       console.warn('syncScheduleFromDrive: texto sin coincidencia de cliente (se muestra tal cual en el horario):', resultado.sinCoincidencia);
+      // 10/08/2026 — hallazgo de la auditoría: hasta hoy esto SOLO se escribía en la consola, así que
+      // Andersson nunca se enteraba. Es un punto ciego con consecuencias de plata: cuando el texto de
+      // una celda del Excel de horarios no coincide EXACTO con ningún cliente (ej. la celda dice
+      // "Patricia Valencia 9:30" pero en la app es "Patricia Esperanza Valencia"), esa clase queda
+      // suelta, sin vincular al cliente real — y una cancelación registrada sobre ella NO entra en su
+      // cuenta de cobro ni en sus estadísticas, en silencio. La app NUNCA adivina a qué cliente se
+      // parece un nombre (regla de seguridad del proyecto), así que lo correcto es avisarlo para que
+      // se corrija el dato: renombrar la celda en Drive, o el cliente en la app, para que coincidan.
+      const nombresUnicos = Array.from(new Set(resultado.sinCoincidencia));
+      NOTIFICACIONES.unshift({id:'n'+Date.now()+'_sincoinc', adminOnly:true,
+        titulo:'Nombres del horario sin cliente asociado',
+        cuerpo:`${nombresUnicos.length} celda${nombresUnicos.length===1?'':'s'} del Excel de horarios no coincide${nombresUnicos.length===1?'':'n'} con ningún cliente: ${nombresUnicos.join(' · ')}. Esas clases se muestran, pero NO quedan vinculadas al cliente, así que sus cancelaciones no entran en la cuenta de cobro. Corrige el nombre en el Excel de Drive (o el del cliente en la app) para que coincidan exactamente.`,
+        hora:'Ahora', leido:false});
+      renderNotifDrawer();
+      toast(`Atención: ${nombresUnicos.length} nombre(s) del horario no coinciden con ningún cliente — revisa las notificaciones.`, 'error');
     }
     regenerarHorarioCompleto_();
     const {year, monthIdx0} = horarioMesPartes_();
@@ -1954,7 +1969,7 @@ async function syncClienteDatosFromDrive(){
   for(const cliente of CLIENTES){
     if(!cliente.drive) continue;
     try{
-      const resp = await gasCall('clienteExcel', {folderId: cliente.drive});
+      const resp = await gasCall('clienteExcel', {folderId: cliente.drive, nombre: cliente.nombre});
       if(!resp || !resp.found) continue; // sin archivo "Anamnesis_..." en su carpeta — se deja tal cual (no se inventa)
       if(resp.error){
         advertencias.push(`${cliente.nombre}: ${resp.error}`);
@@ -6383,7 +6398,7 @@ async function refrescarAnamnesisFicha_(c){
   const el0 = destino();
   if(el0 && !c.anamnesisCompleta) el0.innerHTML = '<span style="color:var(--ink-fade);font-weight:500;">Cargando la Anamnesis desde Drive…</span>';
   try{
-    const resp = await gasCall('clienteExcel', {folderId: c.drive});
+    const resp = await gasCall('clienteExcel', {folderId: c.drive, nombre: c.nombre});
     if(resp && resp.found && !resp.error){
       const texto = (resp.anamnesis || '').trim();
       if(texto && anamnesisPerteneceACliente(texto, c) && texto !== c.anamnesisCompleta){
