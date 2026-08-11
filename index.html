@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-10.1">
+<meta name="app-version" content="2026-08-10.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1616,7 +1616,20 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
   // tenga alguna acción explícita del administrador sobre la que viene solo de la plantilla).
   const deEsteMes = SCHEDULE.filter(s=>s.fecha && s.fecha.startsWith(mesStr));
   const deOtrosMeses = SCHEDULE.filter(s=>!(s.fecha && s.fecha.startsWith(mesStr)));
-  SCHEDULE = [...deOtrosMeses, ...dedupeSolapados_(deEsteMes, e=>`${e.profesorId}|${e.fecha}|${e.tipo}`)];
+  // 10/08/2026 — BUG REAL reportado por Andersson: programó a Alberto (c1) con Daniel el miércoles
+  // 12/08 de 16:40 a 17:40, en el espacio que había quedado libre porque la clase de Lucy Cardona
+  // (c26, 17:00–18:00) estaba CANCELADA. La clase aparecía un momento y se borraba sola. Causa: la
+  // clave de agrupación NO incluía el cliente, así que dos clientes DISTINTOS del mismo profesor, el
+  // mismo día, con el mismo tipo de sesión y horarios que se solapan, se tomaban por "la misma cita
+  // repetida"; y como una cancelación pesa más que una clase programada (ver `prioridad`), la
+  // cancelación de Lucy se quedaba y la clase nueva de Alberto se descartaba en silencio. Es decir:
+  // la propia cancelación que liberaba el espacio impedía usarlo.
+  // Corrección: se agrega `clienteId` a la clave. Dos clientes distintos no son nunca "la misma cita
+  // duplicada", así que ya no compiten entre sí. Esto conserva intacto el propósito original de este
+  // dedupe (28/07/2026: la MISMA cita del MISMO cliente presente a la vez como override y como fila
+  // de la plantilla de Drive, con ids distintos) y es exactamente el mismo criterio que ya usaba
+  // `buildScheduleFromGridData`, que sí comparaba `clienteId`.
+  SCHEDULE = [...deOtrosMeses, ...dedupeSolapados_(deEsteMes, e=>`${e.profesorId}|${e.fecha}|${e.tipo}|${e.clienteId}`)];
 }
 // Filtra citas duplicadas de una lista de filas de horario: dos filas se consideran la MISMA cita
 // cuando `claveFn` da la misma clave (ej. profesor+fecha+tipo, o profesor+día+tipo) Y su horario
