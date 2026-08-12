@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-11.2">
+<meta name="app-version" content="2026-08-11.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1553,10 +1553,27 @@ function datesForWeekdayInMonth(dia, year, monthIdx0){ // dia: 0=lunes..5=sábad
 // Si ya existe una cancelación registrada (sincronizada vía REGISTROS) para este cliente en esta
 // fecha exacta, se refleja en la entrada expandida — para que el espacio se vea "Disponible" en el
 // horario sin importar en qué dispositivo se haya hecho la cancelación originalmente.
-function aplicarCancelacionRegistrada_(entry){
+// 11/08/2026 — BUG REAL reportado por Andersson: canceló la clase de Alejandro del jueves 13 y se la
+// reprogramó ese mismo día a las 06:00. La clase nueva se veía al crearla, pero al salir y volver a
+// entrar desaparecía. Causa: este chequeo cruzado busca la cancelación en REGISTROS por
+// **cliente + fecha, SIN mirar la hora** (REGISTROS no guarda la hora de la clase, ver
+// REGISTRO_SHEET_HEADERS), así que la cancelación de la clase de las 06:30 se le pegaba TAMBIÉN a la
+// clase nueva de las 06:00 del mismo cliente ese mismo día — y la marcaba como cancelada. Peor: como
+// después se guarda el override, esa marca equivocada terminaba escrita en el servidor (se encontró
+// `sp1786531580684_c2` guardado con estado 'cancelada' siendo una clase recién programada).
+// Corrección: si la cancelación de ese cliente/fecha YA está representada en otra fila del horario,
+// no se arrastra a esta. Por REGISTROS es imposible saber a cuál de las dos clases del día
+// corresponde, así que no se adivina — misma regla de seguridad que en el resto de la app.
+// El propósito original (30/07/2026: recuperar la cancelación de una clase cuyo override no alcanzó a
+// sincronizarse) se conserva intacto: si no hay ninguna otra fila cancelada, el chequeo actúa igual.
+function aplicarCancelacionRegistrada_(entry, hermanos){
   if(!entry.clienteId) return;
+  if(entry.estado==='cancelada') return;
   const reg = REGISTROS.find(r=>r.clienteId===entry.clienteId && r.fecha===entry.fecha && r.estado==='cancelada');
   if(!reg) return;
+  const lista = Array.isArray(hermanos) ? hermanos : SCHEDULE;
+  const yaRepresentada = lista.some(x=> x!==entry && x.clienteId===entry.clienteId && x.fecha===entry.fecha && x.estado==='cancelada');
+  if(yaRepresentada) return;
   entry.estado = 'cancelada';
   entry.tipoCancelacion = reg.tipoCancelacion;
   entry.observacion = reg.detalle;
@@ -1566,11 +1583,12 @@ function expandTemplateForMonth_(year, monthIdx0){
   const salida = [];
   SCHEDULE_TEMPLATE.forEach(slot=>{
     datesForWeekdayInMonth(slot.dia, year, monthIdx0).forEach(fecha=>{
-      const entry = Object.assign({}, slot, {id: slot.id+'_'+fecha, fecha});
-      aplicarCancelacionRegistrada_(entry);
-      salida.push(entry);
+      salida.push(Object.assign({}, slot, {id: slot.id+'_'+fecha, fecha}));
     });
   });
+  // El chequeo cruzado se hace al final, con la lista completa a la vista — así puede saber si la
+  // cancelación de ese cliente/fecha ya está representada en otra fila (ver la nota de arriba).
+  salida.forEach(e=>aplicarCancelacionRegistrada_(e, salida));
   return salida;
 }
 // Aplica sobre `SCHEDULE` los cambios puntuales (Programar cliente / Reasignar profesor / Agendar
@@ -1628,11 +1646,17 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
     // puntual fallaba o todavía no le había llegado a este dispositivo (por ejemplo, si el dispositivo
     // de Karen se cerró antes de que su cancelación terminara de subirse), el horario se quedaba
     // mostrando la clase como si nadie la hubiera cancelado, aunque REGISTROS ya la tuviera bien.
-    // Corrección: se aplica aquí el mismo chequeo cruzado contra REGISTROS que ya protege a las clases
+    // Corrección: se aplica el mismo chequeo cruzado contra REGISTROS que ya protege a las clases
     // de la plantilla, así una clase programada a mano queda protegida por DOS caminos independientes
     // (el override Y el registro de la cancelación), no solo uno.
-    aplicarCancelacionRegistrada_(entry);
+    // 11/08/2026: ese chequeo se movió FUERA de este bucle (justo debajo). Corriéndolo aquí, dentro
+    // del bucle, dependía del orden en que llegaran los overrides: si la clase reprogramada se
+    // procesaba ANTES que la cancelación de la clase vieja, todavía no existía ninguna fila cancelada
+    // de ese cliente/fecha y la clase nueva terminaba marcada como cancelada. Al final del bucle ya
+    // está todo aplicado y el chequeo ve el panorama completo.
   });
+  // Chequeo cruzado contra REGISTROS, una vez aplicados TODOS los overrides del mes (ver arriba).
+  SCHEDULE.forEach(e=>{ if(e.fecha && e.fecha.startsWith(mesStr)) aplicarCancelacionRegistrada_(e, SCHEDULE); });
   // 28/07/2026 — bug real reportado: Andersson presionó "Actualizar horario" (como se le indicó) y el
   // masaje de Maria Teresa se siguió viendo duplicado. Causa real, distinta del primer intento de
   // arreglo del mismo día: un override (ej. un masaje agendado en algún momento con el botón "Agendar
