@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-11.3">
+<meta name="app-version" content="2026-08-11.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3254,9 +3254,10 @@ function claseCardHTML(s){
   }
   const reasignada = !!s.asignadoPorAdmin;
   const programada = !!s.programadoPorAdmin;
+  const reprogramada = !!s.reprogramadoPorAdmin;
   const cat = categoriaSesion(s.tipo);
   return `
-  <div class="card" data-clase="${s.id}" style="padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow .15s,border-color .15s;${reasignada||programada?'border-color:var(--accent);':''}" onmouseover="this.style.boxShadow='var(--shadow-md)'" onmouseout="this.style.boxShadow='var(--shadow-sm)'">
+  <div class="card" data-clase="${s.id}" style="padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow .15s,border-color .15s;${reasignada||programada||reprogramada?'border-color:var(--accent);':''}" onmouseover="this.style.boxShadow='var(--shadow-md)'" onmouseout="this.style.boxShadow='var(--shadow-sm)'">
     <div style="width:66px;flex-shrink:0;text-align:center;">
       <div style="font-weight:800;font-size:13.5px;">${s.hora}${s.horaFin?'–'+s.horaFin:''}</div>
     </div>
@@ -3269,9 +3270,14 @@ function claseCardHTML(s){
       </div>
       ${reasignada?`<div style="margin-top:4px;font-size:11.5px;font-weight:700;color:var(--accent);">Asignación por administrador${s.profesorOriginalId?' · antes: '+profesorNombre(s.profesorOriginalId):''}</div>`:''}
       ${programada?`<div style="margin-top:4px;font-size:11.5px;font-weight:700;color:var(--accent);">Programado por administrador (sesión única)</div>`:''}
+      ${reprogramada?`<div style="margin-top:4px;font-size:11.5px;font-weight:700;color:var(--accent);">Reprogramada${s.horarioOriginal?` · antes: ${DIAS[s.horarioOriginal.dia]} ${s.horarioOriginal.hora}`:''}${s.motivoReprogramacion?` · "${s.motivoReprogramacion}"`:''}</div>`:''}
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
       <span class="pill pill-teal">Programada</span>
+      <!-- 11/08/2026: pedido explícito de Andersson — "si es cancelación, sea cancelación y ya; si es
+      reprogramación, se pueda reprogramar". Mover una clase de hora NO es cancelarla: no tiene costo
+      de cancelación ni debe ensuciar el historial del cliente (ver openReprogramarModal). -->
+      ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;color:var(--accent-dark);border-color:var(--accent);" data-reprogramar="${s.id}" onclick="event.stopPropagation();openReprogramarModal('${s.id}')">Reprogramar</button>`:''}
       ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" data-reasignar="${s.id}" onclick="event.stopPropagation();openReasignarModal('${s.id}')">Reasignar profesor</button>`:''}
       <!-- 03/08/2026: pedido explícito de Andersson — si programó una sesión única en el día/hora
       equivocado, necesita poder quitarla sin que quede como una cancelación (eso afectaría la
@@ -3282,6 +3288,98 @@ function claseCardHTML(s){
       ${isAdminOverview() && programada?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;color:var(--danger);border-color:var(--danger);" data-eliminar-clase="${s.id}" onclick="event.stopPropagation();openEliminarClaseProgramadaModal('${s.id}')">Eliminar</button>`:''}
     </div>
   </div>`;
+}
+
+// 11/08/2026 — pedido explícito de Andersson, tras el enredo de la clase de Alejandro del jueves 13:
+// "si es cancelación, sea cancelación y ya; si es reprogramación, se pueda reprogramar". Su clase no
+// se canceló nunca: simplemente pasó de las 6:30 a las 6:00. Como la app solo ofrecía CANCELAR, tocó
+// cancelarla y volver a programarla como sesión nueva — dos operaciones sueltas que la app no
+// relacionaba entre sí, lo que además le dejaba una cancelación falsa en su historial y en sus
+// estadísticas. REPROGRAMAR mueve la MISMA clase a otro día/hora (y, si hace falta, a otro profesor):
+// no genera ninguna cancelación, no tiene costo de cancelación y no toca REGISTROS — la clase sigue
+// siendo la misma cita, solo que en otro horario. Se conserva el horario original para trazabilidad.
+function openReprogramarModal(id){
+  const s = SCHEDULE.find(x=>x.id===id);
+  if(!s) return;
+  openModal(`
+    <div class="modal-head">
+      <h3>Reprogramar clase</h3>
+      <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
+    </div>
+    <div class="modal-body">
+      <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
+        <div style="font-weight:700;">${nombreParaMostrar_(s)}</div>
+        <div class="section-sub">Ahora: ${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora}${s.horaFin?'–'+s.horaFin:''}</div>
+        <div class="section-sub" style="margin-top:4px;">Profesor: <strong>${profesorNombre(s.profesorId)}</strong></div>
+      </div>
+      <div class="card" style="padding:12px 14px;margin-bottom:16px;background:var(--teal-light);border:none;">
+        <div style="font-size:12.5px;color:var(--teal-dark);line-height:1.6;">Mover la clase a otro horario. <strong>No es una cancelación</strong>: no tiene costo de cancelación ni queda registrada como tal — es la misma clase, en otra hora.</div>
+      </div>
+      <form id="reprogramarForm">
+        <div class="field">
+          <label>Nuevo día <span class="req">*</span></label>
+          <select id="rpDia" required>
+            ${DIAS.map((dname,di)=>`<option value="${di}" ${di===s.dia?'selected':''}>${dname}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Nueva hora de inicio <span class="req">*</span></label>
+          <input type="time" id="rpHora" value="${s.hora}" required>
+        </div>
+        <div class="field">
+          <label>Profesor</label>
+          <select id="rpProfesor">
+            ${PROFESORES.map(p=>`<option value="${p.id}" ${p.id===s.profesorId?'selected':''}>${p.nombre}</option>`).join('')}
+          </select>
+          <small>Déjalo igual si solo cambia el horario.</small>
+        </div>
+        <div class="field">
+          <label>Motivo (opcional)</label>
+          <input type="text" id="rpMotivo" placeholder="Ej: el cliente pidió adelantar la hora">
+        </div>
+      </form>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmReprogramar">Confirmar reprogramación</button>
+    </div>
+  `);
+  document.getElementById('btnConfirmReprogramar').addEventListener('click', ()=>{
+    const form = document.getElementById('reprogramarForm');
+    if(!form.reportValidity()) return;
+    const nuevoDia = Number(document.getElementById('rpDia').value);
+    const nuevaHora = document.getElementById('rpHora').value;
+    const nuevoProfesorId = document.getElementById('rpProfesor').value || s.profesorId;
+    const motivo = document.getElementById('rpMotivo').value.trim();
+    const antesDia = s.dia, antesHora = s.hora, antesFecha = s.fecha, antesProfesorId = s.profesorId;
+    if(nuevoDia===antesDia && nuevaHora===antesHora && nuevoProfesorId===antesProfesorId){
+      toast('No cambiaste nada: la clase sigue igual.', 'error');
+      return;
+    }
+    // Se guarda el horario original la PRIMERA vez que se reprograma, para no perder de dónde venía.
+    if(!s.horarioOriginal) s.horarioOriginal = {dia:antesDia, hora:antesHora, fecha:antesFecha, profesorId:antesProfesorId};
+    s.dia = nuevoDia;
+    s.hora = nuevaHora;
+    if(s.horaFin) s.horaFin = calcHoraFin(nuevaHora, 60);
+    s.fecha = fechaParaDiaEnSemanaDe_(antesFecha, nuevoDia);
+    if(nuevoProfesorId!==antesProfesorId){
+      if(!s.profesorOriginalId) s.profesorOriginalId = antesProfesorId;
+      s.profesorId = nuevoProfesorId;
+    }
+    s.reprogramadoPorAdmin = true;
+    s.motivoReprogramacion = motivo;
+    // NO se toca `estado` ni REGISTROS: no es una cancelación, es la misma clase movida.
+    saveState();
+    gasGuardarScheduleOverride_(s);
+    const cambioProfesor = nuevoProfesorId!==antesProfesorId ? ` y pasa de ${profesorNombre(antesProfesorId)} a ${profesorNombre(nuevoProfesorId)}` : '';
+    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase reprogramada',
+      cuerpo:`${nombreParaMostrar_(s)} — pasa de ${DIAS[antesDia]} ${antesHora} a ${DIAS[nuevoDia]} ${fmtFechaCorta(s.fecha)} ${nuevaHora}${cambioProfesor}, por ${STATE.user.nombre}.${motivo?' Motivo: '+motivo:''} No es una cancelación.`,
+      hora:'Ahora', leido:false});
+    renderNotifDrawer();
+    closeModal();
+    renderHorario();
+    toast(`Clase reprogramada a ${DIAS[nuevoDia]} ${nuevaHora}. No se registró ninguna cancelación.`, 'success');
+  });
 }
 
 function openReasignarModal(id){
