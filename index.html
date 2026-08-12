@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-11.1">
+<meta name="app-version" content="2026-08-11.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1669,6 +1669,20 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
 // dos duplicadas se conserva la de mayor "prioridad": una cancelación real nunca se descarta, y entre
 // dos sin cancelar se prefiere la que tenga alguna acción explícita del administrador
 // (asignadoPorAdmin/programadoPorAdmin/agendadoPorAdmin) sobre una fila plana de la plantilla.
+// 11/08/2026 — BUG REAL reportado por Andersson: canceló la clase de Alejandro del jueves 13
+// (06:30–07:30) y enseguida se la reprogramó a las 06:00. La clase nueva aparecía un momento y
+// desaparecía. Causa: una clase CANCELADA y una clase VIVA del mismo cliente que se solapan en el
+// tiempo se tomaban por "la misma cita repetida", y como una cancelación pesa más (ver `prioridad`),
+// la clase nueva se descartaba en silencio. O sea: cancelar a un cliente impedía reprogramarlo en un
+// horario que se cruzara con el de la clase cancelada — justo lo más natural de hacer.
+// Corrección: una cancelación y una clase viva NUNCA son la misma cita (la primera es el registro
+// histórico de algo que no se dictó; la segunda es una cita real), así que no compiten entre sí. El
+// propósito original del dedupe se conserva intacto: sigue fusionando la MISMA cita del MISMO cliente
+// cuando ambas están en el mismo estado (ej. la fila de la plantilla de Drive y su override, con ids
+// distintos — el caso del masaje repetido de Maria Teresa, 28/07/2026).
+function _mismoEstadoDeCancelacion_(a, b){
+  return (a.estado==='cancelada') === (b.estado==='cancelada');
+}
 function dedupeSolapados_(entries, claveFn){
   const prioridad = e => (e.estado==='cancelada'?2:0) + ((e.asignadoPorAdmin||e.programadoPorAdmin||e.agendadoPorAdmin)?1:0);
   const controlPorGrupo = {};
@@ -1677,7 +1691,7 @@ function dedupeSolapados_(entries, claveFn){
     if(!entry.clienteId){ salida.push(entry); return; } // Desplazamiento/Disponible/Almuerzo: sin tocar
     const grupo = claveFn(entry);
     const lista = (controlPorGrupo[grupo] = controlPorGrupo[grupo] || []);
-    const idxExistente = lista.findIndex(v=> entry.hora < (v.horaFin||v.hora) && v.hora < (entry.horaFin||entry.hora));
+    const idxExistente = lista.findIndex(v=> _mismoEstadoDeCancelacion_(v, entry) && entry.hora < (v.horaFin||v.hora) && v.hora < (entry.horaFin||entry.hora));
     if(idxExistente<0){ lista.push(entry); salida.push(entry); return; }
     const existente = lista[idxExistente];
     if(prioridad(entry) > prioridad(existente)){
