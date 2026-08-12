@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-11.4">
+<meta name="app-version" content="2026-08-11.5">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1708,7 +1708,11 @@ function _mismoEstadoDeCancelacion_(a, b){
   return (a.estado==='cancelada') === (b.estado==='cancelada');
 }
 function dedupeSolapados_(entries, claveFn){
-  const prioridad = e => (e.estado==='cancelada'?2:0) + ((e.asignadoPorAdmin||e.programadoPorAdmin||e.agendadoPorAdmin)?1:0);
+  // 11/08/2026: `reprogramadoPorAdmin` faltaba aquí (la función es anterior a que existiera
+  // "Reprogramar"). Sin él, una clase REPROGRAMADA podía ser descartada en favor de una simple clase
+  // programada a mano que se le solapara — y la reprogramada es la que lleva la verdad: es la clase
+  // original movida, con su horario anterior y su motivo. Pesa más que una programación suelta.
+  const prioridad = e => (e.estado==='cancelada'?4:0) + (e.reprogramadoPorAdmin?2:0) + ((e.asignadoPorAdmin||e.programadoPorAdmin||e.agendadoPorAdmin)?1:0);
   const controlPorGrupo = {};
   const salida = [];
   entries.forEach(entry=>{
