@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-11.5">
+<meta name="app-version" content="2026-08-18.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1823,6 +1823,57 @@ async function syncScheduleOverridesFromServer(){
     console.warn('syncScheduleOverridesFromServer falló (se usan los cambios ya guardados en este dispositivo):', e);
   }
 }
+
+// ===================== SUSPENSIONES: sincronizacion entre dispositivos =====================
+// 18/08/2026: hasta hoy las suspensiones vivian SOLO en el localStorage del navegador donde se
+// creaban. Andersson registro varias en su computador y no aparecian en su celular por mas que
+// cerrara sesion y actualizara — no era cache, el dato nunca salia del equipo. Y lo mas grave:
+// Daniel y Karen tampoco las veian, asi que para ellos esas clases seguian apareciendo normales
+// en vez de aparecer como espacio liberado. Se replica el mismo patron ya probado de los cambios
+// de horario (ver syncScheduleOverridesFromServer), que es el que si funciona entre dispositivos.
+async function gasGuardarSuspension_(sp){
+  if(!gasConfigured() || !sp || !sp.id) return;
+  try{
+    const res = await gasCall('saveSuspension', null, {id: sp.id, data: JSON.stringify(sp)});
+    if(res && res.ok){
+      // Marca de confirmacion: sin ella, la red de seguridad de mas abajo la reintentaria siempre.
+      sp.sincronizado = true;
+      saveState();
+    }
+  }catch(e){
+    console.warn('gasGuardarSuspension_ falló (queda guardada solo en este dispositivo por ahora, se reintenta sola más adelante):', e);
+  }
+}
+async function gasEliminarSuspension_(id){
+  if(!gasConfigured() || !id) return;
+  try{ await gasCall('deleteSuspension', null, {id}); }
+  catch(e){ console.warn('gasEliminarSuspension_ falló (queda eliminada solo en este dispositivo por ahora):', e); }
+}
+// Trae las suspensiones de TODOS los dispositivos. El servidor manda, PERO nunca se descarta una
+// suspension local que todavia no se haya confirmado subida (sincronizado !== true): si se
+// descartara, una suspension creada sin señal se perderia para siempre. Esas pendientes se
+// reintentan subir en el mismo ciclo.
+async function syncSuspensionesFromServer(){
+  if(!gasConfigured()) return;
+  try{
+    const data = await gasCall('getSuspensiones');
+    if(!data || !Array.isArray(data.suspensiones)) return;
+    const delServidor = data.suspensiones.filter(sp=>sp && sp.id);
+    delServidor.forEach(sp=>{ sp.sincronizado = true; });
+    const idsServidor = new Set(delServidor.map(sp=>sp.id));
+    const pendientes = SUSPENSIONES.filter(sp=> sp && sp.id && sp.sincronizado!==true && !idsServidor.has(sp.id));
+    SUSPENSIONES = [...delServidor, ...pendientes];
+    saveState();
+    pendientes.forEach(sp=> gasGuardarSuspension_(sp));
+    // Las suspensiones liberan espacio en el horario y en disponibilidad, asi que esas vistas
+    // tambien se refrescan, no solo el panel de Suspensiones.
+    if(STATE.module==='suspensiones') renderSuspensiones();
+    else if(STATE.module==='horario') renderHorario();
+    else if(STATE.module==='disponibilidad') renderDisponibilidad();
+  }catch(e){
+    console.warn('syncSuspensionesFromServer falló (se usan las suspensiones ya guardadas en este dispositivo):', e);
+  }
+}
 // 26/07/2026 — red de seguridad de reconciliación ("Reenviar cambios a todos", antes solo un botón
 // manual del administrador en Horario; 27/07/2026: AHORA TAMBIÉN corre sola, automáticamente, ver
 // `_intentarReenvioAutomaticoDeCambiosLocales_()` más abajo): vuelve a subir al servidor todos los
@@ -2309,6 +2360,7 @@ function _schedulePeriodicScheduleOverridesSync(){
   if(_scheduleOverridesSyncTimer) clearInterval(_scheduleOverridesSyncTimer);
   _scheduleOverridesSyncTimer = setInterval(()=>{
     syncScheduleOverridesFromServer().catch(e=>console.warn('Sync periódico de cambios de horario falló:', e));
+    syncSuspensionesFromServer().catch(e=>console.warn('Sync periódico de suspensiones falló:', e));
     // 27/07/2026: en cada ciclo también se intenta el reenvío automático (solo hace algo real si hay
     // algo pendiente sin confirmar en ESTE dispositivo — ver _intentarReenvioAutomaticoDeCambiosLocales_).
     _intentarReenvioAutomaticoDeCambiosLocales_();
@@ -2699,6 +2751,8 @@ function bootApp(startModule){
   // importar en qué dispositivo se haya hecho el cambio. Ver la nota completa junto a
   // syncScheduleOverridesFromServer.
   syncScheduleOverridesFromServer().catch(e=>console.warn('Carga inicial de cambios de horario falló:', e));
+  // 18/08/2026: las suspensiones se traen en el mismo momento y por el mismo motivo.
+  syncSuspensionesFromServer().catch(e=>console.warn('Carga inicial de suspensiones falló:', e));
   // 27/07/2026: además de TRAER los cambios de otros dispositivos (arriba), este dispositivo también
   // intenta SUBIR automáticamente cualquier cambio propio (de este usuario, cualquier rol) que por
   // algún motivo no se haya confirmado en el servidor todavía — ver la nota completa junto a
@@ -3951,6 +4005,9 @@ function renderSuspensiones(){
     btn.addEventListener('click', ()=>{
       if(confirm('¿Eliminar esta suspensión? Las clases del cliente en ese rango volverán a aparecer como programadas.')){
         SUSPENSIONES = SUSPENSIONES.filter(sp=>sp.id!==btn.dataset.delSusp);
+        // Sin esto la suspension volveria a aparecer sola en el siguiente ciclo de sincronizacion,
+        // porque seguiria existiendo en el servidor.
+        gasEliminarSuspension_(btn.dataset.delSusp);
         renderSuspensiones();
         toast('Suspensión eliminada', 'success');
       }
@@ -4023,12 +4080,16 @@ function openNuevaSuspensionModal(){
     const fechaFin = document.getElementById('suspHasta').value || fechaInicio;
     if(!clienteId){ toast('Selecciona un cliente', 'error'); return; }
     if(fechaFin < fechaInicio){ toast('La fecha "hasta" no puede ser anterior a "desde"', 'error'); return; }
-    SUSPENSIONES.push({
+    const nuevaSuspension = {
       id:'sp'+Date.now(), clienteId, motivo, motivoDetalle,
       fechaInicio, fechaFin,
       observacion: document.getElementById('suspObs').value.trim(),
       registradoPor: STATE.user.id, fechaRegistro: isoDate(new Date()),
-    });
+    };
+    SUSPENSIONES.push(nuevaSuspension);
+    // 18/08/2026: sube la suspension al servidor para que la vean los demas dispositivos (el celular
+    // de Andersson y los de Daniel y Karen). Ver la nota junto a syncSuspensionesFromServer.
+    gasGuardarSuspension_(nuevaSuspension);
     closeModal();
     renderSuspensiones();
     toast('Suspensión registrada — sus clases en ese rango ya aparecen disponibles', 'success');
