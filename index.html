@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-21.4">
+<meta name="app-version" content="2026-08-21.7">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2657,8 +2657,17 @@ async function pullRegistrosForCliente(cliente){
   try{
     const resp = await gasCall('registros', {folderId:cliente.drive, nombre:cliente.nombre});
     if(!resp || !Array.isArray(resp.rows)) return;
+    _aplicarRegistrosRemotos_(cliente, resp.rows);
+  }catch(e){
+    console.warn('pullRegistrosForCliente falló (se ignora, sigue funcionando localmente):', e);
+  }
+}
+// Fusion de las filas que llegan del servidor con lo que hay en este dispositivo. Estaba dentro de
+// pullRegistrosForCliente; se saco aparte (21/08/2026) para que la lectura en bloque de todos los
+// clientes use EXACTAMENTE la misma logica y no haya dos comportamientos distintos.
+function _aplicarRegistrosRemotos_(cliente, rows){
     const idsRemotos = new Set();
-    const remotosUnicos = dedupeFilasRemotas_(resp.rows.filter(row=>row && row[0]).map(row=>rowToRegistro(row, cliente.id)));
+    const remotosUnicos = dedupeFilasRemotas_(rows.filter(row=>row && row[0]).map(row=>rowToRegistro(row, cliente.id)));
     remotosUnicos.forEach(remote=>{
       // 31/07/2026: cualquier fila que venga de Drive, por definición, ya está sincronizada — se
       // marca aquí para que la protección de abajo (no borrar filas que todavía no se han
@@ -2704,9 +2713,6 @@ async function pullRegistrosForCliente(cliente){
     if(typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro===cliente.id && document.getElementById('tablaRegistro')){
       renderTablaRegistro();
     }
-  }catch(e){
-    console.warn('pullRegistrosForCliente falló (se ignora, sigue funcionando localmente):', e);
-  }
 }
 // 27/07/2026 — brecha real encontrada al revisar todo antes de pasar a producción real (pedido
 // explícito de Andersson: "guarda todo muy bien... registro de sesiones de todo el mes por cada uno
@@ -2730,7 +2736,40 @@ async function sincronizarRegistrosDeTodosLosClientes_(){
   _registrosSyncEnCurso = true;
   try{
     const clientesActivos = CLIENTES.filter(c=>c.activo!==false && c.drive);
-    for(const cliente of clientesActivos){
+    // 21/08/2026 (hallazgo 8 de la auditoria) — VIA RAPIDA: una sola peticion en vez de ~32.
+    // Antes se abria una hoja de Drive por cliente en cada ciclo de 15 minutos; con los tres
+    // dispositivos abiertos eran ~384 lecturas por hora. Ahora el servidor las lee todas de una y
+    // devuelve todo junto (ver registrosTodosAction_).
+    // La via de siempre queda intacta como RESPALDO: si esta peticion falla, o el servidor devuelve
+    // una respuesta parcial porque se acerco a su limite de 6 minutos, los clientes que falten se
+    // completan uno por uno como antes. Asi esto nunca puede quedar peor que como estaba.
+    // Se pide POR TANDAS, no todo de una. Medido contra el servidor real el 21/08/2026: cada
+    // cliente cuesta ~2,1 s, asi que los 32 juntos serian ~66 s en UNA sola peticion. Eso entra en
+    // el limite de Apps Script, pero una peticion tan larga es fragil: muchas redes moviles cortan
+    // conexiones largas y, si se cae al segundo 60, se pierde todo el trabajo de esa vuelta.
+    // Con tandas de 8 (~17 s cada una) se pasa de 32 peticiones a 4, cada una falla por su cuenta,
+    // y lo que no llegue se completa uno por uno como siempre.
+    const TANDA = 8;
+    const atendidos = new Set();
+    for(let i=0; i<clientesActivos.length; i+=TANDA){
+      const tanda = clientesActivos.slice(i, i+TANDA);
+      try{
+        const resp = await gasCall('registrosTodos', null, {
+          clientes: tanda.map(c=>({clienteId:c.id, folderId:c.drive, nombre:c.nombre}))
+        });
+        if(resp && Array.isArray(resp.resultados)){
+          resp.resultados.forEach(r=>{
+            const cli = clientesActivos.find(c=>c.id===r.clienteId);
+            if(cli && Array.isArray(r.rows)){ _aplicarRegistrosRemotos_(cli, r.rows); atendidos.add(cli.id); }
+          });
+        }
+      }catch(e){
+        console.warn('registrosTodos: falló una tanda, esos clientes se traen uno por uno:', e);
+      }
+    }
+    const faltantes = clientesActivos.filter(c=>!atendidos.has(c.id));
+    if(faltantes.length) console.info('registrosTodos: quedaron '+faltantes.length+' cliente(s) por traer uno por uno.');
+    for(const cliente of faltantes){
       try{ await pullRegistrosForCliente(cliente); }
       catch(e){ console.warn('sincronizarRegistrosDeTodosLosClientes_: falló uno de los clientes', cliente.id, e); }
     }
@@ -3033,7 +3072,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-21.4) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-21.7) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -3303,10 +3342,24 @@ function mesSiguiente_(mesStr){
 // una sesión dentro del espacio, lo que sobra queda visible de inmediato como su propio espacio libre
 // más pequeño — así se pueden agendar varias sesiones en momentos distintos del mismo bloque, una tras
 // otra, sin ningún botón ni pantalla adicional.
+// 21/08/2026 — pedido de Andersson: "cuando yo cambie un usuario en mi base de usuarios de activo
+// a inactivo, no debe aparecer mas las clases de el". La BASE DE USUARIOS es la fuente de verdad
+// del estado del cliente (se sincroniza desde Drive, ver getBaseClientesAction_), asi que basta con
+// marcarlo inactivo ahi: sus clases dejan de ocupar espacio en el horario, en TODOS los
+// dispositivos, sin que nadie tenga que tocar nada mas.
+// Se resuelve al PINTAR, no borrando filas, por tres motivos: (1) es reversible — si vuelve a
+// quedar activo en la base, sus clases reaparecen solas; (2) no toca el Excel de horarios de Drive,
+// que es solo de Andersson; (3) no afecta lo ya registrado ni facturado, que vive en REGISTROS.
+function clienteInactivo_(clienteId){
+  if(!clienteId) return false;
+  const c = CLIENTES.find(x=>x.id===clienteId);
+  return !!(c && c.activo === false);
+}
 function esBloqueDisponibleVisual_(s){
   if(!s.clienteId && s.tipo==='Disponible') return true; // bloque verde plano leído tal cual de Drive
   if(s.estado==='cancelada') return true; // espacio liberado por una cancelación puntual
   if(s.clienteId && s.estado!=='cancelada' && suspensionActiva(s.clienteId, s.fecha)) return true; // liberado por suspensión (vacaciones/enfermedad/otro)
+  if(s.clienteId && s.estado!=='cancelada' && clienteInactivo_(s.clienteId)) return true; // el cliente quedó inactivo en la base de usuarios
   return false;
 }
 // Texto de trazabilidad de un espacio liberado por cancelación/suspensión (igual al que ya se mostraba
@@ -3317,6 +3370,9 @@ function notaEspacioLibre_(s){
   if(s.estado==='cancelada'){
     const meta = CANCEL_META[s.tipoCancelacion];
     return `Antes: ${nombreParaMostrar_(s)} — ${(meta?meta.label:'cancelación').toLowerCase()}${s.fechaHoraCancelacion?' el '+new Date(s.fechaHoraCancelacion).toLocaleString('es-CO',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}${s.observacion?' · "'+s.observacion+'"':''}`;
+  }
+  if(clienteInactivo_(s.clienteId)){
+    return `Antes: ${nombreParaMostrar_(s)} — cliente inactivo en la base de usuarios`;
   }
   const susp = suspensionActiva(s.clienteId, s.fecha);
   if(susp){
@@ -7120,7 +7176,6 @@ function openClienteModal(id){
       </div>
     </div>
     <div class="modal-foot" style="flex-wrap:wrap;">
-      ${isAdminOverview() && c.activo!==false ? `<button class="btn btn-outline" style="color:var(--danger);border-color:var(--danger);" onclick="openCerrarClienteModal('${c.id}')">Cerrar cliente definitivamente</button>` : ''}
       <button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
       <button class="btn btn-primary" onclick="closeModal(); selectedClienteRegistro='${c.id}'; switchModule('registro');">Ver sesiones</button>
     </div>
@@ -7129,57 +7184,17 @@ function openClienteModal(id){
   refrescarAnamnesisFicha_(c);
 }
 
-function openCerrarClienteModal(clienteId){
-  const c = CLIENTES.find(x=>x.id===clienteId);
-  if(!c) return;
-  const clasesFuturas = SCHEDULE_TEMPLATE.filter(s=>s.clienteId===clienteId).length;
-  openModal(`
-    <div class="modal-head">
-      <h3>Cerrar cliente definitivamente</h3>
-      <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
-    </div>
-    <div class="modal-body">
-      <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
-        <div style="font-weight:700;">${c.nombre}</div>
-        <div class="section-sub">${fmtCC(c)}</div>
-      </div>
-      <div class="card" style="padding:12px 14px;background:#FEF2F2;border:1.5px solid #FCA5A5;margin-bottom:16px;">
-        <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:4px;">Esta acción no se puede deshacer desde la app</div>
-        <div style="font-size:12.5px;color:var(--ink-soft);">El cliente quedará marcado como "Antiguo" y se eliminarán sus ${clasesFuturas} clase${clasesFuturas===1?'':'s'} del horario recurrente (semana actual y proyección de disponibilidad). Su historial de sesiones y cuentas de cobro anteriores NO se borra. Si más adelante vuelve a tomar clases, avísame para reactivarlo.</div>
-      </div>
-      <form id="cerrarClienteForm">
-        <div class="field">
-          <label>Motivo (opcional)</label>
-          <textarea id="cerrarMotivo" placeholder="Ej: cliente decidió terminar el proceso, se mudó de ciudad, etc."></textarea>
-        </div>
-      </form>
-    </div>
-    <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-danger" id="btnConfirmCerrarCliente">Confirmar cierre definitivo</button>
-    </div>
-  `);
-  document.getElementById('btnConfirmCerrarCliente').addEventListener('click', ()=>{
-    const motivo = document.getElementById('cerrarMotivo').value.trim();
-    cerrarClienteDefinitivo(clienteId, motivo);
-  });
-}
-
-function cerrarClienteDefinitivo(clienteId, motivo){
-  const c = CLIENTES.find(x=>x.id===clienteId);
-  if(!c) return;
-  c.activo = false;
-  const eliminadas = SCHEDULE_TEMPLATE.filter(s=>s.clienteId===clienteId).length;
-  for(let i=SCHEDULE_TEMPLATE.length-1;i>=0;i--){ if(SCHEDULE_TEMPLATE[i].clienteId===clienteId) SCHEDULE_TEMPLATE.splice(i,1); }
-  for(let i=SCHEDULE.length-1;i>=0;i--){ if(SCHEDULE[i].clienteId===clienteId) SCHEDULE.splice(i,1); }
-  agregarNotificacion_({id:'n'+Date.now(), adminOnly:true, titulo:'Cliente cerrado definitivamente', cuerpo:`${c.nombre} fue marcado como cliente antiguo por ${STATE.user.nombre}${motivo?': "'+motivo+'"':''}. Se retiraron ${eliminadas} clase${eliminadas===1?'':'s'} del horario recurrente.`, hora:'Ahora', leido:false});
-  renderNotifDrawer();
-  closeModal();
-  if(STATE.module==='horario') renderHorario();
-  if(STATE.module==='clientes') renderClientes();
-  toast(`${c.nombre} quedó cerrado definitivamente. Su horario recurrente fue actualizado.`, 'success');
-}
-
+// 21/08/2026 — Se quito "Cerrar cliente definitivamente" (openCerrarClienteModal /
+// cerrarClienteDefinitivo), a pedido de Andersson. La auditoria mostro que ese boton no dejaba nada
+// firme: cambiaba `activo` y quitaba las clases SOLO en el dispositivo donde se presionaba, sin
+// publicar el horario ni guardar el estado. Los demas dispositivos seguian viendo las clases; la
+// sincronizacion con la base de usuarios devolvia `activo` a su valor real; y el siguiente
+// "Actualizar horario" restauraba las clases desde Drive. Encima decia "Su horario recurrente fue
+// actualizado", confirmando algo que no habia pasado.
+// La forma correcta y unica de retirar a un cliente es marcarlo INACTIVO en la base de usuarios:
+// desde ahi el estado viaja solo a todos los dispositivos y sus clases dejan de ocupar espacio en
+// el horario (ver clienteInactivo_ / esBloqueDisponibleVisual_). Es reversible y no toca el Excel
+// de horarios de Drive.
 async function downloadAnamnesisPDF(clienteId){
   const c = CLIENTES.find(x=>x.id===clienteId);
   const btn = document.getElementById('btnDescargarAnamnesis');
