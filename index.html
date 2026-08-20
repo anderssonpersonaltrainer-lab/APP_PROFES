@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-19.1">
+<meta name="app-version" content="2026-08-19.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2877,6 +2877,21 @@ function bootApp(startModule){
   // trae la última plantilla ya publicada por el administrador (liviano, ver loadPublishedSchedule).
   // La lectura pesada del Excel de Drive ahora es SOLO manual, con el botón "Actualizar horario" del
   // módulo Horario (solo administrador) — ver la nota completa junto a syncScheduleFromDrive.
+  // 19/08/2026 — LIMPIEZA DE UNA SOLA VEZ al actualizar a esta version. El arreglo de identidad
+  // real evita que se creen filas fantasma nuevas, pero NO borra las que las versiones anteriores
+  // ya dejaron guardadas en este dispositivo (por ejemplo, la clase que Karen seguia viendo aunque
+  // Andersson ya la habia reprogramado). Esas filas no desaparecen solas porque el horario solo se
+  // reconstruye desde cero cuando cambia la version de la plantilla publicada — y aqui la plantilla
+  // es la misma. Al olvidar la version conocida se fuerza esa reconstruccion una vez: el horario se
+  // vuelve a armar desde la plantilla publicada + los cambios guardados, que ya es correcto.
+  // No se pierde nada: la plantilla y los cambios viven en el servidor, no en el dispositivo.
+  try{
+    if(localStorage.getItem('horarioReconstruido_2026_08_19') !== 'si'){
+      SCHEDULE_TEMPLATE_VERSION = null;
+      localStorage.setItem('horarioReconstruido_2026_08_19', 'si');
+      console.info('Horario: reconstruccion unica tras la actualizacion a 2026-08-19.1');
+    }
+  }catch(e){ /* si el navegador bloquea el almacenamiento, simplemente no se fuerza */ }
   loadPublishedSchedule().catch(e=>console.warn('Carga inicial de horario publicado falló:', e));
   // 26/07/2026: además de la plantilla recurrente (arriba), se traen los cambios puntuales de
   // horario (Programar cliente/Reasignar profesor/Agendar masaje) que cualquier dispositivo haya
