@@ -9,7 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-20.2">
+<!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
+     aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="app-version" content="2026-08-21.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1658,6 +1661,57 @@ function mostrarAvisoAuditoria_(a, cuando, detalle){
   });
 }
 
+// ===================== NOTIFICACIONES QUE SI LLEGAN A SU DESTINATARIO (21/08/2026) =====================
+// Hallazgo de la auditoria: las notificaciones vivian solo en el dispositivo donde se generaban.
+// Un aviso dirigido a Daniel creado en el computador de Andersson nunca le llegaba a Daniel; y una
+// cancelacion registrada por Karen en su celular no le aparecia a Andersson. El cambio de fondo si
+// viajaba (por eso el horario se veia bien), pero el aviso no.
+// `agregarNotificacion_` es ahora el UNICO punto por donde se crea una notificacion compartida:
+// la agrega en este dispositivo y la sube. Se le pone `creadoEn` porque el campo `hora` era el
+// texto 'Ahora', que no sirve ni para ordenar entre dispositivos ni para saber cuando borrarla.
+function agregarNotificacion_(n){
+  if(!n || !n.id) return;
+  if(!n.creadoEn) n.creadoEn = new Date().toISOString();
+  n.compartida = true;     // marca que ESTA debe viajar (las locales a proposito no la llevan)
+  NOTIFICACIONES.unshift(n);
+  gasGuardarNotificacion_(n);
+}
+async function gasGuardarNotificacion_(n){
+  if(!gasConfigured() || !n || !n.id) return;
+  try{
+    const res = await gasCall('saveNotificacion', null, {id:n.id, data:JSON.stringify(n)});
+    if(res && res.ok){ n.sincronizada = true; saveState(); }
+  }catch(e){
+    console.warn('gasGuardarNotificacion_ falló (queda solo en este dispositivo por ahora):', e);
+  }
+}
+// Trae las notificaciones de todos los dispositivos. Igual que con las suspensiones: el servidor
+// manda, pero NUNCA se descarta una local que todavia no se haya confirmado subida, y esas se
+// reintentan en el mismo ciclo. Se conservan las 200 mas recientes para que el almacenamiento del
+// navegador no crezca sin fin (en el servidor la limpieza la hace la revision nocturna).
+async function syncNotificacionesFromServer(){
+  if(!gasConfigured()) return;
+  try{
+    const data = await gasCall('getNotificaciones');
+    if(!data || !Array.isArray(data.notificaciones)) return;
+    const delServidor = data.notificaciones.filter(n=>n && n.id);
+    delServidor.forEach(n=>{ n.sincronizada = true; });
+    const idsServidor = new Set(delServidor.map(n=>n.id));
+    // Las locales que nunca se subieron (sin señal) y las que a proposito no se comparten
+    // (las que cada dispositivo se genera solo al sincronizar) se conservan siempre.
+    const locales = NOTIFICACIONES.filter(n=> n && n.id && !idsServidor.has(n.id));
+    const pendientes = locales.filter(n=> n.sincronizada!==true && n.compartida===true);
+    NOTIFICACIONES = [...delServidor, ...locales]
+      .sort((a,b)=> String(b.creadoEn||'').localeCompare(String(a.creadoEn||'')))
+      .slice(0, 200);
+    saveState();
+    pendientes.forEach(n=> gasGuardarNotificacion_(n));
+    renderNotifDrawer();
+  }catch(e){
+    console.warn('syncNotificacionesFromServer falló (se usan las de este dispositivo):', e);
+  }
+}
+
 // ===================== IDENTIDAD REAL DE UNA CLASE (19/08/2026) =====================
 // CAUSA RAIZ de la familia de fallas "yo lo veo bien pero el profesor no": la app identificaba una
 // clase por su POSICION en la cuadricula del Excel de Drive (los ids `drN` son un contador de
@@ -2503,6 +2557,7 @@ function _schedulePeriodicScheduleOverridesSync(){
   _scheduleOverridesSyncTimer = setInterval(()=>{
     syncScheduleOverridesFromServer().catch(e=>console.warn('Sync periódico de cambios de horario falló:', e));
     syncSuspensionesFromServer().catch(e=>console.warn('Sync periódico de suspensiones falló:', e));
+    syncNotificacionesFromServer().catch(e=>console.warn('Sync periódico de notificaciones falló:', e));
     // 27/07/2026: en cada ciclo también se intenta el reenvío automático (solo hace algo real si hay
     // algo pendiente sin confirmar en ESTE dispositivo — ver _intentarReenvioAutomaticoDeCambiosLocales_).
     _intentarReenvioAutomaticoDeCambiosLocales_();
@@ -2684,11 +2739,97 @@ async function sincronizarRegistrosDeTodosLosClientes_(){
     _registrosSyncEnCurso = false;
   }
 }
+// ===================== RED DE REINTENTO DE REGISTROS DE SESION (21/08/2026) =====================
+// Hallazgo de la auditoria: al guardar un registro, la subida a Drive era "dispara y olvida"
+// (`.catch(e=>console.warn(...))`). Si fallaba —mala senal en el domicilio de un cliente, un
+// tropiezo del Apps Script— el registro se quedaba SOLO en ese dispositivo para siempre: no
+// aparecia en la cuenta de cobro y nadie se enteraba. El horario ya tenia esta red desde el
+// 27/07/2026 (ver reenviarCambiosLocalesAlServidor_); los registros de sesion no, y son
+// justamente los que mueven la plata.
+//
+// Es seguro reintentar siempre: `appendRegistroAction_` en el backend es IDEMPOTENTE — si la fila
+// con ese id ya existe la actualiza en vez de agregar otra, asi que un reintento nunca duplica.
+// Y el grupo a reintentar es pequeno y correcto: la sincronizacion completa cada 15 minutos
+// (sincronizarRegistrosDeTodosLosClientes_) marca `sincronizadoServidor` en todo lo que SI llego,
+// asi que lo que queda sin marcar es exactamente lo que fallo.
+function registrosPendientesDeSubir_(){
+  return REGISTROS.filter(r=> r && r.id && r.clienteId && !r.sincronizadoServidor);
+}
+let _reenvioRegistrosEnCurso = false;
+async function reenviarRegistrosPendientes_(){
+  if(!gasConfigured() || _reenvioRegistrosEnCurso) return {total:0, enviados:0};
+  const pendientes = registrosPendientesDeSubir_();
+  if(!pendientes.length) return {total:0, enviados:0};
+  _reenvioRegistrosEnCurso = true;
+  let enviados = 0;
+  try{
+    // Tope por ciclo: si algun dia hay muchos pendientes, se suben de a poco en vez de disparar
+    // decenas de llamadas seguidas al Apps Script (que tiene limites de cuota).
+    for(const r of pendientes.slice(0, 15)){
+      const cliente = CLIENTES.find(c=>c.id===r.clienteId);
+      if(!cliente || !cliente.drive) continue;
+      try{
+        const res = await appendRegistroToSheet(cliente, r);
+        if(res && res.ok){ r.sincronizadoServidor = true; enviados++; }
+      }catch(e){
+        console.warn('reenviarRegistrosPendientes_: sigue fallando', r.id, e);
+      }
+    }
+    if(enviados) saveState();
+  } finally {
+    _reenvioRegistrosEnCurso = false;
+  }
+  return {total:pendientes.length, enviados};
+}
+
+// --- Disparadores de reintento (21/08/2026, ajuste pedido por Andersson) ---
+// Requisito textual: "que sea algo interno... no que quede como pendiente para que el profesor
+// tenga despues que hacer doble trabajo". El profesor NO ve nada: si registro la clase, ya cumplio;
+// que el dato llegue a Drive es problema de la app. Por eso no hay aviso ni boton de reintentar.
+// Esperar al ciclo de 15 minutos no alcanzaba: lo natural es reintentar EN EL MOMENTO en que vuelve
+// la conexion. Se cubren los tres casos reales de un celular en la calle:
+//   1. vuelve el internet            -> evento 'online'
+//   2. el profesor vuelve a la app   -> 'visibilitychange' (en celular los temporizadores se
+//                                       congelan con la app en segundo plano, asi que el ciclo de
+//                                       15 min puede no haber corrido nunca)
+//   3. quedo algo sin subir          -> reintento con espera creciente (30s, 1m, 2m, 5m, 10m),
+//                                       que se detiene solo cuando ya no queda nada pendiente
+let _reintentoRegistrosTimer = null;
+let _reintentoRegistrosEspera = 30000;
+function _programarReintentoRegistros_(inmediato){
+  if(_reintentoRegistrosTimer) clearTimeout(_reintentoRegistrosTimer);
+  if(!registrosPendientesDeSubir_().length){ _reintentoRegistrosEspera = 30000; return; }
+  const espera = inmediato ? 1000 : _reintentoRegistrosEspera;
+  _reintentoRegistrosTimer = setTimeout(async ()=>{
+    _reintentoRegistrosTimer = null;
+    try{ await reenviarRegistrosPendientes_(); }
+    catch(e){ console.warn('Reintento de registros pendientes falló:', e); }
+    if(registrosPendientesDeSubir_().length){
+      _reintentoRegistrosEspera = Math.min(_reintentoRegistrosEspera*2, 10*60*1000);
+      _programarReintentoRegistros_(false);
+    } else {
+      _reintentoRegistrosEspera = 30000;   // todo al dia: se vuelve a empezar corto la proxima vez
+    }
+  }, espera);
+}
+function _activarDisparadoresDeReintentoDeRegistros_(){
+  window.addEventListener('online', ()=>{
+    _reintentoRegistrosEspera = 30000;
+    _programarReintentoRegistros_(true);
+  });
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible') _programarReintentoRegistros_(true);
+  });
+}
+
 let _registrosSyncTimer = null;
 function _schedulePeriodicRegistrosSyncTodos_(){
   if(_registrosSyncTimer) clearInterval(_registrosSyncTimer);
   _registrosSyncTimer = setInterval(()=>{
     sincronizarRegistrosDeTodosLosClientes_().catch(e=>console.warn('Sync periódico de registros de todos los clientes falló:', e));
+    // Cada ciclo se reintenta tambien lo que quedo sin subir. Si no hay nada pendiente (el caso
+    // normal) no hace ninguna llamada de mas.
+    reenviarRegistrosPendientes_().catch(e=>console.warn('Reintento de registros pendientes falló:', e));
   }, 15*60*1000);
 }
 
@@ -2892,7 +3033,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-20.2) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-21.4) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -2916,6 +3057,16 @@ function bootApp(startModule){
   syncSuspensionesFromServer().catch(e=>console.warn('Carga inicial de suspensiones falló:', e));
   // 19/08/2026: aviso en pantalla si la revision nocturna encontro algo (solo al administrador).
   revisarAuditoriaNocturna().catch(e=>console.warn('Revisión de la auditoría nocturna falló:', e));
+  // 21/08/2026: al abrir la app se reintenta subir cualquier registro de sesion que haya quedado
+  // atrapado en este dispositivo (ver reenviarRegistrosPendientes_). Si no hay nada pendiente, no
+  // hace ninguna llamada.
+  reenviarRegistrosPendientes_().catch(e=>console.warn('Reintento inicial de registros pendientes falló:', e));
+  // Y quedan activos los disparadores: vuelve el internet o el profesor vuelve a la app -> se
+  // reintenta al instante, sin que él tenga que hacer nada ni enterarse.
+  // 21/08/2026: notificaciones de todos los dispositivos (ver syncNotificacionesFromServer).
+  syncNotificacionesFromServer().catch(e=>console.warn('Carga inicial de notificaciones falló:', e));
+  _activarDisparadoresDeReintentoDeRegistros_();
+  _programarReintentoRegistros_(false);
   // 27/07/2026: además de TRAER los cambios de otros dispositivos (arriba), este dispositivo también
   // intenta SUBIR automáticamente cualquier cambio propio (de este usuario, cualquier rol) que por
   // algún motivo no se haya confirmado en el servidor todavía — ver la nota completa junto a
@@ -3061,7 +3212,13 @@ function renderNotifDrawer(){
   document.querySelectorAll('.notif-item').forEach(it=>{
     it.addEventListener('click', ()=>{
       const n = NOTIFICACIONES.find(x=>x.id===it.dataset.id);
-      if(n){ n.leido = true; renderNotifDrawer(); }
+      if(n){
+        n.leido = true;
+        renderNotifDrawer();
+        // Que quede leida tambien en los otros dispositivos del mismo usuario (cada notificacion
+        // pertenece a una sola persona, asi que no se pisa lo de nadie mas).
+        if(n.compartida) gasGuardarNotificacion_(n);
+      }
     });
   });
 }
@@ -3593,7 +3750,7 @@ function openReprogramarModal(id){
     saveState();
     gasGuardarScheduleOverride_(s);
     const cambioProfesor = nuevoProfesorId!==antesProfesorId ? ` y pasa de ${profesorNombre(antesProfesorId)} a ${profesorNombre(nuevoProfesorId)}` : '';
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase reprogramada',
+    agregarNotificacion_({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase reprogramada',
       cuerpo:`${nombreParaMostrar_(s)} — pasa de ${DIAS[antesDia]} ${antesHora} a ${DIAS[nuevoDia]} ${fmtFechaCorta(s.fecha)} ${nuevaHora}${cambioProfesor}, por ${STATE.user.nombre}.${motivo?' Motivo: '+motivo:''} No es una cancelación.`,
       hora:'Ahora', leido:false});
     renderNotifDrawer();
@@ -3661,7 +3818,7 @@ function openReasignarModal(id){
     const detalleCambio = (nuevoDia!==anteriorDia || nuevaHora!==anteriorHora)
       ? ` y movida a ${DIAS[nuevoDia]} ${nuevaHora}`
       : '';
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase asignada por administrador', cuerpo:`${nombreParaMostrar_(s)} — ${DIAS[anteriorDia]} ${anteriorHora}, reasignada de ${profesorNombre(anteriorProfesorId)} a ${profesorNombre(nuevoProfesorId)}${detalleCambio} por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    agregarNotificacion_({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase asignada por administrador', cuerpo:`${nombreParaMostrar_(s)} — ${DIAS[anteriorDia]} ${anteriorHora}, reasignada de ${profesorNombre(anteriorProfesorId)} a ${profesorNombre(nuevoProfesorId)}${detalleCambio} por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderHorario();
@@ -3713,7 +3870,7 @@ function openEliminarClaseProgramadaModal(id){
     if(ovIdx>=0) SCHEDULE_OVERRIDES.splice(ovIdx,1);
     saveState();
     gasEliminarScheduleOverride_(id);
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Sesión programada eliminada', cuerpo:`Se eliminó (por error de programación) la sesión de ${nombreParaMostrar_(s)} del ${fmtFechaCorta(s.fecha)} ${s.hora}, por ${STATE.user.nombre}. No queda como cancelación.`, hora:'Ahora', leido:false});
+    agregarNotificacion_({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Sesión programada eliminada', cuerpo:`Se eliminó (por error de programación) la sesión de ${nombreParaMostrar_(s)} del ${fmtFechaCorta(s.fecha)} ${s.hora}, por ${STATE.user.nombre}. No queda como cancelación.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderHorario();
@@ -3923,7 +4080,7 @@ function openProgramarSlotModal(espacio){
       SCHEDULE.push(nuevo);
       gasGuardarScheduleOverride_(nuevo);
     });
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId, titulo: libre ? 'Cliente programado' : 'Cliente programado en espacio disponible', cuerpo:`${grupoIds.map(clienteNombre).join(' y ')} programado con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${fmtFechaCorta(fecha)} ${horaInicio}–${horaFin}, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    agregarNotificacion_({id:'n'+Date.now(), profesorId, titulo: libre ? 'Cliente programado' : 'Cliente programado en espacio disponible', cuerpo:`${grupoIds.map(clienteNombre).join(' y ')} programado con ${profesorNombre(profesorId)} — ${DIAS[dia]} ${fmtFechaCorta(fecha)} ${horaInicio}–${horaFin}, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     refrescarVistaHorarioODisponibilidad_();
@@ -4092,7 +4249,7 @@ function openCancelModal(id){
         };
         REGISTROS.push(cancelacionRegistro);
         const clienteDelCancel = CLIENTES.find(c=>c.id===cid);
-        if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).then(()=>{ cancelacionRegistro.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+        if(clienteDelCancel) appendRegistroToSheet(clienteDelCancel, cancelacionRegistro).then(()=>{ cancelacionRegistro.sincronizadoServidor = true; saveState(); }).catch(e=>{ console.warn('Drive sync falló (se guardó localmente, se reintentará solo):', e); _programarReintentoRegistros_(true); });
       });
       saveState();
       // 27/07/2026: bug real reportado por Andersson — canceló la clase de Sebastian Garay del
@@ -4105,7 +4262,7 @@ function openCancelModal(id){
       // como SCHEDULE_OVERRIDES, que sí se reaplica sobre meses ya expandidos cada 2 minutos en
       // cualquier dispositivo (ver syncScheduleOverridesFromServer/applyScheduleOverridesToMonth_).
       gasGuardarScheduleOverride_(s);
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cancelación registrada', cuerpo:`${grupoIds.map(clienteNombre).join(' y ')} — ${CANCEL_META[s.tipoCancelacion].label.toLowerCase()} el ${fmtFechaCorta(s.fecha)}, registrada por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+      agregarNotificacion_({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Cancelación registrada', cuerpo:`${grupoIds.map(clienteNombre).join(' y ')} — ${CANCEL_META[s.tipoCancelacion].label.toLowerCase()} el ${fmtFechaCorta(s.fecha)}, registrada por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
       renderNotifDrawer();
       closeModal();
       renderHorario();
@@ -4929,7 +5086,7 @@ function openAddRegistroModal(){
       REGISTROS.push(nuevoRegistro);
       ensureHistorialCompletada(cid, fecha, STATE.user.id, modalidad);
       const clienteDelRegistro = CLIENTES.find(c=>c.id===cid);
-      if(clienteDelRegistro) appendRegistroToSheet(clienteDelRegistro, nuevoRegistro).then(()=>{ nuevoRegistro.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+      if(clienteDelRegistro) appendRegistroToSheet(clienteDelRegistro, nuevoRegistro).then(()=>{ nuevoRegistro.sincronizadoServidor = true; saveState(); }).catch(e=>{ console.warn('Drive sync falló (se guardó localmente, se reintentará solo):', e); _programarReintentoRegistros_(true); });
     });
     closeModal();
     // 03/08/2026: la tabla ahora se acota al mes de STATE.invoiceMonth (ver renderTablaRegistro) —
@@ -5135,10 +5292,10 @@ function openCompletarRegistroModal(registroId){
       r2.estado = 'cerrado';
     });
 
-    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>{ console.warn('Drive sync falló (se guardó localmente, se reintentará solo):', e); _programarReintentoRegistros_(true); }); }
     companionRegistros.forEach(r2=>{
       const clienteDelCompanero = CLIENTES.find(c=>c.id===r2.clienteId);
-      if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).then(()=>{ r2.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+      if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).then(()=>{ r2.sincronizadoServidor = true; saveState(); }).catch(e=>{ console.warn('Drive sync falló (se guardó localmente, se reintentará solo):', e); _programarReintentoRegistros_(true); });
     });
     closeModal();
     renderTablaRegistro();
@@ -5343,10 +5500,10 @@ function openEditarRegistroModal(registroId){
       r2.estado = document.querySelector(`[data-cc-edit-rid="${r2.id}"]`)?.checked ? 'cerrado' : 'abierto';
     });
 
-    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>{ console.warn('Drive sync falló (se guardó localmente, se reintentará solo):', e); _programarReintentoRegistros_(true); }); }
     companionRegistros.forEach(r2=>{
       const clienteDelCompanero = CLIENTES.find(c=>c.id===r2.clienteId);
-      if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).then(()=>{ r2.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e));
+      if(clienteDelCompanero) updateRegistroRowInSheet(clienteDelCompanero, r2).then(()=>{ r2.sincronizadoServidor = true; saveState(); }).catch(e=>{ console.warn('Drive sync falló (se guardó localmente, se reintentará solo):', e); _programarReintentoRegistros_(true); });
     });
     closeModal();
     // 03/08/2026: mismo criterio que al guardar un registro nuevo — si la fecha editada quedó en un
@@ -5427,7 +5584,7 @@ function openEditarCancelacionModal(registroId){
       // este dispositivo hasta que algún otro reexpandiera el mes de cero.
       gasGuardarScheduleOverride_(sSched);
     }
-    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>console.warn('Drive sync falló (se guardó localmente):', e)); }
+    { const clienteDelRegistro = CLIENTES.find(c=>c.id===r.clienteId); if(clienteDelRegistro) updateRegistroRowInSheet(clienteDelRegistro, r).then(()=>{ r.sincronizadoServidor = true; saveState(); }).catch(e=>{ console.warn('Drive sync falló (se guardó localmente, se reintentará solo):', e); _programarReintentoRegistros_(true); }); }
     saveState();
     closeModal();
     // 03/08/2026: mismo criterio que al guardar/editar un registro normal — si la fecha corregida
@@ -5470,7 +5627,7 @@ function openEliminarRegistroModal(registroId){
     const hIdx = HISTORIAL.findIndex(x=>x.clienteId===r.clienteId && x.fecha===r.fecha && x.estado==='completada');
     if(hIdx>=0) HISTORIAL.splice(hIdx,1);
     if(cliente) deleteRegistroRowInSheet(cliente, registroId).catch(e=>console.warn('Drive sync falló (se eliminó localmente):', e));
-    NOTIFICACIONES.unshift({id:'n'+Date.now(), profesorId:r.profesorId, titulo:'Registro eliminado', cuerpo:`Se eliminó el registro de ${cliente.nombre} del ${fmtFechaCorta(r.fecha)}, junto con su sesión en la cuenta de cobro, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
+    agregarNotificacion_({id:'n'+Date.now(), profesorId:r.profesorId, titulo:'Registro eliminado', cuerpo:`Se eliminó el registro de ${cliente.nombre} del ${fmtFechaCorta(r.fecha)}, junto con su sesión en la cuenta de cobro, por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderTablaRegistro();
@@ -5505,6 +5662,42 @@ const INVOICE_COUNTERS = {
 // reapertura/recálculo/reenvío posterior de esa MISMA cuenta (mismo cliente, mismo mes) devuelve
 // siempre ese mismo número, sin volver a tocar el contador.
 const INVOICE_NUMEROS_ASIGNADOS = {};
+// 21/08/2026 — EL NUMERO DE LA CUENTA LO MANDA EL SERVIDOR. Hallazgo de la auditoria: el
+// consecutivo vivia solo en el localStorage del dispositivo donde se genero la cuenta, asi que
+// generarla o reenviarla desde otro equipo (o tras limpiar el navegador) podia repetir un numero ya
+// usado o cambiarle el numero a una cuenta que el cliente ya habia recibido.
+// Ahora se pide a la hoja "_CuentasDeCobro", que es la fuente de verdad para todos los dispositivos.
+// Se le manda al servidor lo que este equipo ya sabe, para migrar sin romper nada:
+//   - el numero YA asignado a ese cliente+mes (si existe) -> el servidor lo adopta tal cual, para
+//     que una cuenta ya enviada nunca cambie de numero;
+//   - hasta que numero venia ese cliente este ano -> sirve de piso, porque las cuentas de enero a
+//     julio se emitieron antes de que existiera esta hoja y no estan registradas ahi.
+// Si el servidor no responde, se sigue usando el consecutivo local (la app nunca queda bloqueada).
+async function asegurarNumeroCuenta_(clienteId, monthStr){
+  if(!gasConfigured()) return null;
+  const anio = monthStr.split('-')[0];
+  const yaAsignado = (INVOICE_NUMEROS_ASIGNADOS[clienteId] || {})[monthStr] || null;
+  const contadorLocal = (INVOICE_COUNTERS[clienteId] || {})[anio] || 0;
+  try{
+    const res = await gasCall('numeroCuenta', null, {clienteId, mes:monthStr, numeroLocal:yaAsignado, contadorLocal});
+    if(!(res && res.ok && res.numero)) return null;
+    const asignados = INVOICE_NUMEROS_ASIGNADOS[clienteId] || (INVOICE_NUMEROS_ASIGNADOS[clienteId] = {});
+    asignados[monthStr] = res.numero;
+    // El contador local se deja al dia con lo que decidio el servidor, para que si algun dia se
+    // trabaja sin conexion el numero de respaldo sea el correcto y no uno ya usado.
+    const partes = String(res.numero).split('-');
+    const n = parseInt(partes[partes.length-1], 10);
+    if(!isNaN(n)){
+      const counters = INVOICE_COUNTERS[clienteId] || (INVOICE_COUNTERS[clienteId] = {});
+      if(!(counters[anio] >= n)) counters[anio] = n;
+    }
+    saveState();
+    return res.numero;
+  }catch(e){
+    console.warn('asegurarNumeroCuenta_ falló (se usa el consecutivo de este dispositivo):', e);
+    return null;
+  }
+}
 function nextInvoiceNumero(clienteId, monthStr){
   const asignados = INVOICE_NUMEROS_ASIGNADOS[clienteId] || (INVOICE_NUMEROS_ASIGNADOS[clienteId] = {});
   if(asignados[monthStr]) return asignados[monthStr];
@@ -5918,6 +6111,9 @@ async function openInvoiceModal(clienteId){
     toast('Actualizando registros antes de generar la cuenta de cobro…');
     await pullRegistrosForCliente(clienteParaRefrescar).catch(e=>console.warn('No se pudo refrescar el registro antes de la cuenta de cobro (se usa lo último guardado en este dispositivo):', e));
   }
+  // El numero se reserva en el servidor ANTES de construir la cuenta, para que computeInvoice ya
+  // lo encuentre asignado (ver asegurarNumeroCuenta_/nextInvoiceNumero).
+  await asegurarNumeroCuenta_(clienteId, STATE.invoiceMonth);
   const inv = computeInvoice(clienteId, STATE.invoiceMonth);
   openModal(`
     <div class="modal-head">
@@ -5960,7 +6156,10 @@ async function openInvoiceModal(clienteId){
 function nombreArchivoCuenta(inv){
   const mesCap = NOMBRES_MES[+STATE.invoiceMonth.split('-')[1]-1];
   const mesCapitalizado = mesCap.charAt(0).toUpperCase()+mesCap.slice(1);
-  return `${mesCapitalizado}_${inv.cliente.nombre.replace(/\s+/g,'_')}.pdf`;
+  // 21/08/2026: el numero va en el nombre del archivo (pedido de Andersson) para que quede visible
+  // en Drive sin abrir el PDF, y para poder reconstruirlo si algun dia hiciera falta.
+  const numero = inv.numero ? `_${String(inv.numero).replace(/[^\w-]/g,'')}` : '';
+  return `${mesCapitalizado}_${inv.cliente.nombre.replace(/\s+/g,'_')}${numero}.pdf`;
 }
 
 // ---- Generación paginada del PDF de la cuenta de cobro ----
@@ -6179,7 +6378,7 @@ async function buildInvoicePDFBlob(inv){
 function simulateGuardarEnDrive(inv, filename){
   const anio = STATE.invoiceMonth.split('-')[0];
   const ruta = `Drive / ${inv.cliente.nombre} / ${anio} / ${filename}`;
-  NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó (simulado) en: ${ruta}`, hora:'Ahora', leido:false});
+  agregarNotificacion_({id:'n'+Date.now(), adminOnly:true, titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó (simulado) en: ${ruta}`, hora:'Ahora', leido:false});
   renderNotifDrawer();
 }
 
@@ -6227,7 +6426,7 @@ async function guardarCuentaEnDriveConAviso(inv, filename, blob){
     const ok = await guardarPDFEnDriveReal(inv, filename, blob);
     if(ok){
       const anio = STATE.invoiceMonth.split('-')[0];
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó en: Drive / ${inv.cliente.nombre} / ${anio} / ${filename}`, hora:'Ahora', leido:false});
+      agregarNotificacion_({id:'n'+Date.now(), adminOnly:true, titulo:'Cuenta de cobro guardada en Drive', cuerpo:`Se guardó en: Drive / ${inv.cliente.nombre} / ${anio} / ${filename}`, hora:'Ahora', leido:false});
       renderNotifDrawer();
       return true;
     }
@@ -6455,23 +6654,50 @@ function renderDocs(){
   document.querySelectorAll('input[type=file][data-doc]').forEach(inp=>{
     inp.addEventListener('change', ()=>{
       const f = inp.files[0];
-      chosen[inp.dataset.doc] = f ? f.name : null;
+      chosen[inp.dataset.doc] = f || null;   // se guarda el ARCHIVO, no solo su nombre
       document.querySelector(`[data-filename="${inp.dataset.doc}"]`).textContent = f ? '✓ '+f.name+' — listo para enviar' : '';
       const btn = document.querySelector(`[data-send="${inp.dataset.doc}"]`);
       if(btn) btn.disabled = !f;
     });
   });
   document.querySelectorAll('[data-send]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
+    btn.addEventListener('click', async ()=>{
       const tipo = btn.dataset.send;
       const archivo = chosen[tipo];
       if(!archivo){ toast('Elige un archivo primero', 'error'); return; }
-      DOCS_ENVIADOS.push({id:'d'+Date.now()+Math.random(), profesorId:STATE.user.id, tipo, archivo, fecha:isoDate(new Date()), estado:'Enviado'});
-      NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Documentación del mes recibida', cuerpo:`${STATE.user.nombre} envió: ${tipo}.`, hora:'Ahora', leido:false});
-      renderNotifDrawer();
-      renderDocs();
-      saveState();
-      toast(`"${tipo}" enviado a anderssonpersonaltrainer@gmail.com`, 'success');
+      // 21/08/2026 — ANTES ESTO NO ENVIABA NADA. Solo guardaba el nombre del archivo en una lista
+      // local y mostraba «enviado a ...», asi que Daniel y Karen creian haber cumplido y a
+      // Andersson nunca le llegaba. Ahora el archivo se sube de verdad (queda en Drive y le llega
+      // por correo con el adjunto) y el mensaje de exito SOLO aparece si el servidor confirma.
+      if(!gasConfigured()){ toast('No hay conexión con Drive configurada. Inténtalo más tarde.', 'error'); return; }
+      const MAX_MB = 8;
+      if(archivo.size > MAX_MB*1024*1024){
+        toast(`El archivo pesa ${(archivo.size/1024/1024).toFixed(1)} MB. El máximo es ${MAX_MB} MB.`, 'error');
+        return;
+      }
+      btn.disabled = true;
+      const textoOriginal = btn.textContent;
+      btn.textContent = 'Enviando…';
+      try{
+        const base64 = await blobToBase64(archivo);
+        const resp = await gasCall('enviarDocumentacion', null, {
+          profesor: STATE.user.nombre, tipo, filename: archivo.name,
+          mimeType: archivo.type || 'application/octet-stream', base64,
+        });
+        if(!(resp && resp.ok)) throw new Error('el servidor no confirmó el envío');
+        DOCS_ENVIADOS.push({id:'d'+Date.now()+Math.random(), profesorId:STATE.user.id, tipo, archivo: archivo.name, fecha:isoDate(new Date()), estado:'Enviado'});
+        agregarNotificacion_({id:'n'+Date.now(), adminOnly:true, titulo:'Documentación del mes recibida', cuerpo:`${STATE.user.nombre} envió: ${tipo}.`, hora:'Ahora', leido:false});
+        renderNotifDrawer();
+        renderDocs();
+        saveState();
+        toast(`"${tipo}" enviado a ${resp.enviadoA || 'Andersson'}.`, 'success');
+      }catch(e){
+        console.warn('Envío de documentación falló:', e);
+        // No se agrega a DOCS_ENVIADOS: si no se envio, no debe figurar como enviado.
+        toast('No se pudo enviar. Revisa la conexión e inténtalo de nuevo.', 'error');
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
+      }
     });
   });
 }
@@ -6946,7 +7172,7 @@ function cerrarClienteDefinitivo(clienteId, motivo){
   const eliminadas = SCHEDULE_TEMPLATE.filter(s=>s.clienteId===clienteId).length;
   for(let i=SCHEDULE_TEMPLATE.length-1;i>=0;i--){ if(SCHEDULE_TEMPLATE[i].clienteId===clienteId) SCHEDULE_TEMPLATE.splice(i,1); }
   for(let i=SCHEDULE.length-1;i>=0;i--){ if(SCHEDULE[i].clienteId===clienteId) SCHEDULE.splice(i,1); }
-  NOTIFICACIONES.unshift({id:'n'+Date.now(), adminOnly:true, titulo:'Cliente cerrado definitivamente', cuerpo:`${c.nombre} fue marcado como cliente antiguo por ${STATE.user.nombre}${motivo?': "'+motivo+'"':''}. Se retiraron ${eliminadas} clase${eliminadas===1?'':'s'} del horario recurrente.`, hora:'Ahora', leido:false});
+  agregarNotificacion_({id:'n'+Date.now(), adminOnly:true, titulo:'Cliente cerrado definitivamente', cuerpo:`${c.nombre} fue marcado como cliente antiguo por ${STATE.user.nombre}${motivo?': "'+motivo+'"':''}. Se retiraron ${eliminadas} clase${eliminadas===1?'':'s'} del horario recurrente.`, hora:'Ahora', leido:false});
   renderNotifDrawer();
   closeModal();
   if(STATE.module==='horario') renderHorario();

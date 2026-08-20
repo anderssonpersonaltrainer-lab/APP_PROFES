@@ -1,0 +1,4 @@
+# La app maneja datos personales y de salud de clientes reales.
+# No debe aparecer en buscadores.
+User-agent: *
+Disallow: /
