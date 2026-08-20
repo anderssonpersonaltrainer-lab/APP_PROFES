@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-18.1">
+<meta name="app-version" content="2026-08-19.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1605,11 +1605,138 @@ function _overrideCorrespondeAFila_(fila, o){
   if(!fila.clienteId) return false;  // la fila es un bloque libre/especial: NO es la misma cita
   return fila.clienteId === o.clienteId;
 }
+// ===================== AVISO EN PANTALLA DE LA REVISION NOCTURNA (19/08/2026) =====================
+// Pedido de Andersson: el auditor nocturno REVISA pero NO cambia nada; si encuentra algo, debe
+// avisarle al administrador con una notificacion GRANDE en pantalla, no solo por correo.
+// Solo se muestra al administrador, y solo una vez por hallazgo distinto: si manana el auditor
+// reporta exactamente lo mismo, no vuelve a interrumpir (se recuerda la "firma" ya vista). Si
+// aparece algo NUEVO, vuelve a salir.
+let _avisoAuditoriaMostrado = false;
+function _firmasAuditoriaVistas_(){
+  try{ return JSON.parse(localStorage.getItem('auditoriaVistas')||'[]'); }catch(e){ return []; }
+}
+function _marcarFirmaAuditoriaVista_(firma){
+  const v = _firmasAuditoriaVistas_();
+  if(v.indexOf(firma)<0){ v.push(firma); localStorage.setItem('auditoriaVistas', JSON.stringify(v.slice(-30))); }
+}
+async function revisarAuditoriaNocturna(){
+  if(!gasConfigured()) return;
+  if(!(STATE.user && STATE.user.rol==='admin')) return;   // solo el administrador
+  if(_avisoAuditoriaMostrado) return;
+  try{
+    const data = await gasCall('ultimaAuditoria');
+    const a = data && data.auditoria;
+    if(!a || !a.estado || a.estado==='OK') return;
+    if(_firmasAuditoriaVistas_().indexOf(a.firma)>=0) return;  // ya lo vio
+    _avisoAuditoriaMostrado = true;
+    const cuando = a.fecha ? fmtFechaCorta(String(a.fecha).slice(0,10)) : 'anoche';
+    const detalle = escaparHtml_(String(a.detalle||'').replace(/ \|\| /g, '\n\n'));
+    mostrarAvisoAuditoria_(a, cuando, detalle);
+  }catch(e){
+    console.warn('revisarAuditoriaNocturna falló (no afecta el resto de la app):', e);
+  }
+}
+// El HTML va aparte para no meter comentarios dentro del template literal (un backtick ahi rompe
+// TODO el bloque script — ya paso el 09/08/2026 y dejo la app en blanco).
+function mostrarAvisoAuditoria_(a, cuando, detalle){
+  openModal(`
+    <div class="modal-head" style="background:#7f1d1d;color:#fff">
+      <div style="font-size:22px;font-weight:700">Revisión del horario: hay algo que revisar</div>
+      <div style="opacity:.85;margin-top:4px">Revisión automática del ${cuando}</div>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:16px;margin-top:0">La revisión automática de anoche encontró cambios guardados que ya no encuentran su clase.</p>
+      <div style="background:#fef2f2;border-left:4px solid #dc2626;padding:12px;border-radius:6px;white-space:pre-wrap;font-size:14px">${detalle}</div>
+      <p style="color:#666;font-size:13px;margin-bottom:0">La revisión solo mira y anota: <b>no modifica el horario ni ningún registro</b>. El historial completo queda en la pestaña "_Auditoria" del Excel de horarios.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" id="btnAuditoriaVisto">Entendido</button>
+    </div>`, 'lg');
+  document.getElementById('btnAuditoriaVisto').addEventListener('click', ()=>{
+    _marcarFirmaAuditoriaVista_(a.firma);
+    closeModal();
+  });
+}
+
+// ===================== IDENTIDAD REAL DE UNA CLASE (19/08/2026) =====================
+// CAUSA RAIZ de la familia de fallas "yo lo veo bien pero el profesor no": la app identificaba una
+// clase por su POSICION en la cuadricula del Excel de Drive (los ids `drN` son un contador de
+// celdas, ver buildScheduleFromGridData). Cada vez que Andersson edita el horario y le da
+// "Actualizar horario", todas las posiciones siguientes se corren, y los cambios ya guardados
+// quedan apuntando a un numero que ahora es OTRA cosa. Medido sobre los datos reales del
+// 19/08/2026: de 76 cambios guardados, 33 (43%) apuntaban a una clase equivocada. Ejemplo real: la
+// clase de Luis Alejandro (c2) del jueves era `dr78`, pero sus cambios estaban guardados como
+// `dr72` (que hoy es la clase de OTRO cliente, c20) y `dr77` (que hoy es un bloque "Disponible").
+// Los arreglos anteriores (26/07, 30/07, 10/08, 11/08) fueron parches al mecanismo de rescate que
+// intentaba adivinar la fila correcta — funcionaba en unos dispositivos y en otros no, por eso
+// cada persona veia algo distinto. Esto ataca la causa: una clase se identifica por lo que ES
+// (cliente + fecha + hora + profesor), que no cambia nunca por editar el Excel.
+function _horaObjetivoDeOverride_(o){
+  // Si la clase fue reprogramada, su identidad sigue siendo la del horario ORIGINAL: es la fila de
+  // la plantilla que hay que encontrar para moverla.
+  return (o.horarioOriginal && o.horarioOriginal.hora) || o.hora || '';
+}
+function _identidadDeOverride_(o){
+  return [o.clienteId||'', o.fecha||'', _horaObjetivoDeOverride_(o),
+          (o.horarioOriginal && o.horarioOriginal.profesorId) || o.profesorId || ''].join('|');
+}
+function _fechaDeCambioDeOverride_(o){ return String(o._updatedAt || o.fechaHoraCancelacion || ''); }
+// Varios cambios guardados pueden apuntar a la MISMA clase real (pasa cuando el horario se
+// republico varias veces: quedan filas viejas con ids corridos). Al identificar por lo que la clase
+// es, todos caen sobre la misma fila y el resultado dependeria del orden de llegada — que es
+// justamente lo que hacia que cada dispositivo mostrara algo distinto. Se conserva el MAS RECIENTE,
+// que es la ultima decision real que tomo el administrador.
+function _dedupeOverridesPorIdentidad_(lista){
+  const porIdentidad = new Map();
+  const sinCliente = [];
+  lista.forEach(o=>{
+    if(!o.clienteId){ sinCliente.push(o); return; }
+    const k = _identidadDeOverride_(o);
+    const previo = porIdentidad.get(k);
+    if(!previo) { porIdentidad.set(k, o); return; }
+    const cmp = _fechaDeCambioDeOverride_(o).localeCompare(_fechaDeCambioDeOverride_(previo))
+             || String(o.id||'').localeCompare(String(previo.id||''));
+    if(cmp > 0) porIdentidad.set(k, o);   // desempate estable por id (ver nota abajo)
+  });
+  return [...sinCliente, ...porIdentidad.values()];
+}
+// Busca la fila real por lo que la clase ES. El id solo se usa como pista entre las filas del mismo
+// cliente, nunca como fuente de verdad.
+function _buscarFilaParaOverride_(o){
+  if(!o.clienteId) return SCHEDULE.find(x=>x.id===o.id) || null;
+  const candidatas = SCHEDULE.filter(x=> x.fecha===o.fecha && x.clienteId===o.clienteId);
+  if(!candidatas.length) return null;
+  const horaObj = _horaObjetivoDeOverride_(o);
+  return candidatas.find(x=>x.id===o.id)
+      || candidatas.find(x=>x.hora===horaObj)
+      || candidatas.find(x=>x.hora===o.hora)
+      || candidatas[0];
+}
+// Un cambio sobre una clase que viene de la plantilla de Drive (id `drN_fecha`) NUNCA debe crear
+// una fila nueva. Las clases creadas a mano por el administrador (ids `sp`/`sm`) si.
+function _overrideEsDePlantilla_(o){ return /^dr\d+_/.test(String(o.id||'')); }
+
 function applyScheduleOverridesToMonth_(year, monthIdx0){
   const mesStr = `${year}-${pad(monthIdx0+1)}`;
-  SCHEDULE_OVERRIDES.forEach(o=>{
-    if(!o || !o.fecha || !o.fecha.startsWith(mesStr)) return;
-    let existente = SCHEDULE.find(x=>x.id===o.id);
+  const delMes = SCHEDULE_OVERRIDES.filter(o=> o && o.fecha && String(o.fecha).startsWith(mesStr));
+  const noUbicados = [];
+  // Se aplican en orden CRONOLOGICO (del cambio mas viejo al mas nuevo), no en el orden en que la
+  // hoja devuelva las filas. Asi, cuando dos cambios distintos terminan cayendo sobre la misma
+  // clase, siempre gana el mas reciente — la ultima decision real del administrador — y el
+  // resultado es identico en todos los dispositivos. Sin esto, cada equipo podia quedar con un
+  // estado distinto segun el orden de llegada, que es parte de por que Andersson y los profesores
+  // veian cosas diferentes.
+  // El desempate por `id` NO es cosmetico: 11 cambios guardados no tienen marca de tiempo y otros
+  // 13 grupos comparten exactamente la misma, asi que ordenar solo por fecha deja los empates en el
+  // orden de llegada — y ahi volvia a colarse la dependencia del orden que causa que cada
+  // dispositivo muestre algo distinto. Con el id como segundo criterio el orden es siempre el mismo.
+  const enOrden = _dedupeOverridesPorIdentidad_(delMes)
+    .slice()
+    .sort((a,b)=>
+      _fechaDeCambioDeOverride_(a).localeCompare(_fechaDeCambioDeOverride_(b))
+      || String(a.id||'').localeCompare(String(b.id||'')));
+  enOrden.forEach(o=>{
+    let existente = _buscarFilaParaOverride_(o);
     // 11/08/2026 — BUG REAL reportado por Andersson: corrigió en el Excel de Drive la disponibilidad
     // de Karen (martes y jueves ahora desde las 6:00, antes 6:30) y le dio "Actualizar horario". El
     // martes tomó bien el cambio; el jueves NO: seguía mostrando el espacio libre desde las 6:30.
@@ -1625,16 +1752,17 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
     // fecha + cliente (y se prefiere la de la misma hora). Si no se encuentra, NO se aplica — mejor
     // perder de vista un cambio puntual que corromper el horario (y las cancelaciones tienen además
     // su propio respaldo independiente vía REGISTROS, ver aplicarCancelacionRegistrada_).
-    let idDestino = null;
-    if(existente && !_overrideCorrespondeAFila_(existente, o)){
-      const candidatas = SCHEDULE.filter(x=> x.fecha===o.fecha && x.clienteId && x.clienteId===o.clienteId);
-      const correcta = candidatas.find(x=>x.hora===o.hora) || candidatas[0] || null;
-      if(!correcta) return;              // ninguna fila corresponde: no se toca nada
-      existente = correcta;
-      idDestino = correcta.id;           // se conserva el id REAL de la fila, no el del override corrido
+    const datos = Object.assign({}, o);
+    delete datos._updatedAt;             // marca interna de sincronizacion, no es parte de la clase
+    if(!existente){
+      // No se encontro la clase. Si el cambio es sobre una fila de la plantilla, NO se inventa una
+      // fila nueva: crearla es exactamente lo que le duplicaba la clase al profesor (el veia la
+      // clase original Y la copia del cambio). Se anota para el aviso de mas abajo.
+      if(_overrideEsDePlantilla_(o)){ noUbicados.push(o); return; }
+      SCHEDULE.push(datos);              // clase creada a mano por el administrador: si se agrega
+      return;
     }
-    const entry = existente ? Object.assign(existente, o, idDestino?{id:idDestino}:{}) : Object.assign({}, o);
-    if(!existente) SCHEDULE.push(entry);
+    Object.assign(existente, datos, {id: existente.id});
     // 30/07/2026 (noche) — bug real reportado: Andersson programó a Carolina Sarmiento en el horario
     // de Karen (con "Programar cliente"), Karen canceló esa clase, y la cancelación se veía bien en
     // "Registro de sesiones" (esa parte ya viaja por REGISTROS, que se sincroniza y reconcilia aparte)
@@ -1655,6 +1783,11 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
     // de ese cliente/fecha y la clase nueva terminaba marcada como cancelada. Al final del bucle ya
     // está todo aplicado y el chequeo ve el panorama completo.
   });
+  if(noUbicados.length){
+    // No se pierde nada facturable: las cancelaciones tienen respaldo independiente en REGISTROS
+    // (ver aplicarCancelacionRegistrada_). El auditor nocturno del Apps Script avisa por correo.
+    console.warn('applyScheduleOverridesToMonth_: '+noUbicados.length+' cambio(s) guardado(s) no encontraron su clase en '+mesStr+':', noUbicados.map(o=>o.id));
+  }
   // Chequeo cruzado contra REGISTROS, una vez aplicados TODOS los overrides del mes (ver arriba).
   SCHEDULE.forEach(e=>{ if(e.fecha && e.fecha.startsWith(mesStr)) aplicarCancelacionRegistrada_(e, SCHEDULE); });
   // 28/07/2026 — bug real reportado: Andersson presionó "Actualizar horario" (como se le indicó) y el
@@ -2753,6 +2886,8 @@ function bootApp(startModule){
   syncScheduleOverridesFromServer().catch(e=>console.warn('Carga inicial de cambios de horario falló:', e));
   // 18/08/2026: las suspensiones se traen en el mismo momento y por el mismo motivo.
   syncSuspensionesFromServer().catch(e=>console.warn('Carga inicial de suspensiones falló:', e));
+  // 19/08/2026: aviso en pantalla si la revision nocturna encontro algo (solo al administrador).
+  revisarAuditoriaNocturna().catch(e=>console.warn('Revisión de la auditoría nocturna falló:', e));
   // 27/07/2026: además de TRAER los cambios de otros dispositivos (arriba), este dispositivo también
   // intenta SUBIR automáticamente cualquier cambio propio (de este usuario, cualquier rol) que por
   // algún motivo no se haya confirmado en el servidor todavía — ver la nota completa junto a
