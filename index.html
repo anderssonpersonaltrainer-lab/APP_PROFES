@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-20.1">
+<meta name="app-version" content="2026-08-20.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2886,19 +2886,23 @@ function bootApp(startModule){
   // trae la última plantilla ya publicada por el administrador (liviano, ver loadPublishedSchedule).
   // La lectura pesada del Excel de Drive ahora es SOLO manual, con el botón "Actualizar horario" del
   // módulo Horario (solo administrador) — ver la nota completa junto a syncScheduleFromDrive.
-  // 19/08/2026 — LIMPIEZA DE UNA SOLA VEZ al actualizar a esta version. El arreglo de identidad
-  // real evita que se creen filas fantasma nuevas, pero NO borra las que las versiones anteriores
-  // ya dejaron guardadas en este dispositivo (por ejemplo, la clase que Karen seguia viendo aunque
-  // Andersson ya la habia reprogramado). Esas filas no desaparecen solas porque el horario solo se
-  // reconstruye desde cero cuando cambia la version de la plantilla publicada — y aqui la plantilla
-  // es la misma. Al olvidar la version conocida se fuerza esa reconstruccion una vez: el horario se
-  // vuelve a armar desde la plantilla publicada + los cambios guardados, que ya es correcto.
-  // No se pierde nada: la plantilla y los cambios viven en el servidor, no en el dispositivo.
+  // 19/08/2026, generalizado el 20/08 — RECONSTRUCCION DEL HORARIO EN CADA ACTUALIZACION.
+  // Un arreglo en la logica del horario NO alcanza por si solo: el horario ya construido queda
+  // guardado en cada dispositivo, y solo se reconstruye cuando cambia la plantilla publicada. Si la
+  // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
+  // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
+  // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
+  // Drive dijera 06:30 (v2026-08-20.2) — el arreglo era correcto pero llegaba tarde al dato ya
+  // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
+  // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
+  // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
+  // No se pierde nada: la plantilla y todos los cambios guardados viven en el servidor.
   try{
-    if(localStorage.getItem('horarioReconstruido_2026_08_19') !== 'si'){
+    const versionApp = (document.querySelector('meta[name="app-version"]')||{}).content || '';
+    if(versionApp && localStorage.getItem('horarioReconstruidoEnVersion') !== versionApp){
       SCHEDULE_TEMPLATE_VERSION = null;
-      localStorage.setItem('horarioReconstruido_2026_08_19', 'si');
-      console.info('Horario: reconstruccion unica tras la actualizacion a 2026-08-19.1');
+      localStorage.setItem('horarioReconstruidoEnVersion', versionApp);
+      console.info('Horario: reconstruccion completa tras actualizar a', versionApp);
     }
   }catch(e){ /* si el navegador bloquea el almacenamiento, simplemente no se fuerza */ }
   loadPublishedSchedule().catch(e=>console.warn('Carga inicial de horario publicado falló:', e));
