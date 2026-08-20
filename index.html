@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Andersson PT">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Andersson Personal Trainer — App de gestión de horarios, sesiones y clientes">
-<meta name="app-version" content="2026-08-19.2">
+<meta name="app-version" content="2026-08-20.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1762,6 +1762,15 @@ function applyScheduleOverridesToMonth_(year, monthIdx0){
       SCHEDULE.push(datos);              // clase creada a mano por el administrador: si se agrega
       return;
     }
+    // 20/08/2026 — reportado por Andersson: la cancelacion del 20/08 se mostraba de 6:00 a 7:00
+    // cuando en el horario de Drive esa clase es de 6:30 a 7:30. El cambio guardado traia
+    // `hora: 06:00` heredado de la reprogramacion REAL del 13/08 ("La clase pasa de 6:30 a 6:00"),
+    // que se propago a otras fechas en la epoca en que los cambios se pisaban entre si (ver la
+    // causa raiz del 19/08). El horario de Drive es la fuente de verdad de CUANDO es una clase:
+    // un cambio guardado solo puede mover la hora cuando es una reprogramacion de verdad y sigue
+    // vigente. Una clase cancelada no se movio a ningun lado — se muestra en su hora real.
+    const esReprogramacionVigente = !!o.reprogramadoPorAdmin && o.estado !== 'cancelada';
+    if(!esReprogramacionVigente){ delete datos.hora; delete datos.horaFin; delete datos.dia; }
     Object.assign(existente, datos, {id: existente.id});
     // 30/07/2026 (noche) — bug real reportado: Andersson programó a Carolina Sarmiento en el horario
     // de Karen (con "Programar cliente"), Karen canceló esa clase, y la cancelación se veía bien en
