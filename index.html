@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-22.4">
+<meta name="app-version" content="2026-08-22.5">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3170,7 +3170,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-22.4) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-22.5) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -3834,7 +3834,7 @@ function claseCardHTML(s){
       aplica a sesiones creadas con "Programar cliente" (s.programadoPorAdmin) — una clase normal
       de la plantilla recurrente sigue usando "Cancelar" como corresponde, porque esa sí representa
       un compromiso real con el cliente. -->
-      ${isAdminOverview() && programada?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;color:var(--danger);border-color:var(--danger);" data-eliminar-clase="${s.id}" onclick="event.stopPropagation();openEliminarClaseProgramadaModal('${s.id}')">Eliminar</button>`:''}
+      ${isAdminOverview() && (programada || s.asignadoPorAdmin || reprogramada)?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;color:var(--danger);border-color:var(--danger);" data-eliminar-clase="${s.id}" onclick="event.stopPropagation();openEliminarClaseProgramadaModal('${s.id}')">${programada?'Eliminar':'Deshacer cambio'}</button>`:''}
     </div>
   </div>`;
 }
@@ -4039,41 +4039,81 @@ function openReasignarModal(id){
 // REGISTROS, así que no afecta la cuenta de cobro ni las estadísticas del cliente/profesor. También
 // borra el override correspondiente en el servidor (gasEliminarScheduleOverride_) para que no
 // reaparezca solo en otro dispositivo o al resincronizar.
+// 22/08/2026 — ampliado a reasignaciones y reprogramaciones. Hasta hoy este botón SOLO aparecía en
+// clases creadas desde cero (`programadoPorAdmin`), así que una REASIGNACIÓN o REPROGRAMACIÓN hecha
+// por error no se podía deshacer desde ningún lado. Salió a la luz con un caso real: la clase de
+// Alberto quedó reprogramada al viernes equivocado, y al borrar ese cambio directamente en el
+// servidor, la red de reenvío automático del propio dispositivo (`reenviarCambiosLocalesAlServidor_`,
+// que reenvía todo lo que tenga `asignadoPorAdmin`/`programadoPorAdmin` sin confirmar) lo volvía a
+// subir — no puede distinguir "esto se borró a propósito" de "esto nunca alcanzó a subirse". La
+// única forma de que un borrado se sostenga es hacerlo DESDE la app, que lo quita de las dos partes.
+//
+// Son dos acciones distintas, a propósito:
+//   - Clase creada desde cero (`sp...`): desaparece por completo, no existía en el Excel de Drive.
+//   - Clase del horario que se modificó (`drN_fecha`): se DESHACE el cambio y vuelve a como está en
+//     el Excel de Drive — que es la fuente de verdad. Por eso se reconstruye el mes desde la
+//     plantilla publicada: sin eso, la fila quedaría con los datos ya modificados en memoria.
 function openEliminarClaseProgramadaModal(id){
   const s = SCHEDULE.find(x=>x.id===id);
-  if(!s || !s.programadoPorAdmin) return;
+  if(!s) return;
+  const esCreadaPorAdmin = !!s.programadoPorAdmin;
+  const esCambioSobrePlantilla = !esCreadaPorAdmin && (s.asignadoPorAdmin || s.reprogramadoPorAdmin);
+  if(!esCreadaPorAdmin && !esCambioSobrePlantilla) return;
+  const titulo = esCreadaPorAdmin ? 'Eliminar sesión programada' : 'Deshacer cambio';
+  const explicacion = esCreadaPorAdmin
+    ? `Se quita esta sesión programada por completo — a diferencia de "Cancelar", NO queda ningún registro de cancelación, no afecta la cuenta de cobro ni las estadísticas de ${nombreParaMostrar_(s)}. Úsalo solo cuando la programaste por error (día/hora equivocado).`
+    : `Se deshace el cambio y la clase vuelve a como está en tu Excel de horarios de Drive. NO queda ningún registro de cancelación, no afecta la cuenta de cobro ni las estadísticas de ${nombreParaMostrar_(s)}. Úsalo cuando reasignaste o reprogramaste por error.`;
   openModal(`
     <div class="modal-head">
-      <h3>Eliminar sesión programada</h3>
+      <h3>${titulo}</h3>
       <button class="modal-close" onclick="closeModal()">${ICONS.x.replace('viewBox','width="15" height="15" viewBox')}</button>
     </div>
     <div class="modal-body">
       <div class="card" style="padding:14px;margin-bottom:16px;background:var(--paper-dim);border:none;">
         <div style="font-weight:700;">${nombreParaMostrar_(s)}</div>
         <div class="section-sub">${DIAS[s.dia]} ${fmtFechaCorta(s.fecha)} · ${s.hora}${s.horaFin?'–'+s.horaFin:''} · ${s.tipo} · ${profesorNombre(s.profesorId)}</div>
+        ${s.horarioOriginal?`<div class="section-sub" style="margin-top:6px;">Originalmente: ${DIAS[s.horarioOriginal.dia]} ${fmtFechaCorta(s.horarioOriginal.fecha)} · ${s.horarioOriginal.hora} · ${profesorNombre(s.horarioOriginal.profesorId)}</div>`:''}
       </div>
       <div class="card" style="padding:12px 14px;background:#FEF2F2;border:1.5px solid #FCA5A5;">
         <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:4px;">Esta acción no se puede deshacer</div>
-        <div style="font-size:12.5px;color:var(--ink-soft);">Se quita esta sesión programada por completo — a diferencia de "Cancelar", NO queda ningún registro de cancelación, no afecta la cuenta de cobro ni las estadísticas de ${nombreParaMostrar_(s)}. Úsalo solo cuando la programaste por error (día/hora equivocado).</div>
+        <div style="font-size:12.5px;color:var(--ink-soft);">${explicacion}</div>
       </div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-danger" id="btnConfirmEliminarClase">Eliminar definitivamente</button>
+      <button class="btn btn-danger" id="btnConfirmEliminarClase">${esCreadaPorAdmin?'Eliminar definitivamente':'Deshacer el cambio'}</button>
     </div>
   `);
   document.getElementById('btnConfirmEliminarClase').addEventListener('click', ()=>{
+    const nombreCliente = nombreParaMostrar_(s);
+    const fechaAntes = s.fecha, horaAntes = s.hora, profAntes = s.profesorId;
     const idx = SCHEDULE.findIndex(x=>x.id===id);
     if(idx>=0) SCHEDULE.splice(idx,1);
     const ovIdx = SCHEDULE_OVERRIDES.findIndex(o=>o.id===id);
     if(ovIdx>=0) SCHEDULE_OVERRIDES.splice(ovIdx,1);
     saveState();
     gasEliminarScheduleOverride_(id);
-    agregarNotificacion_({id:'n'+Date.now(), profesorId:s.profesorId, titulo:'Sesión programada eliminada', cuerpo:`Se eliminó (por error de programación) la sesión de ${nombreParaMostrar_(s)} del ${fmtFechaCorta(s.fecha)} ${s.hora}, por ${STATE.user.nombre}. No queda como cancelación.`, hora:'Ahora', leido:false});
+    if(esCambioSobrePlantilla){
+      // Se reconstruye el mes desde la plantilla publicada + los cambios que QUEDAN, para que la
+      // clase reaparezca tal como está en el Excel de Drive. Sin esto, la fila se quedaría fuera del
+      // horario (se acaba de quitar de SCHEDULE) hasta la próxima reconstrucción completa.
+      regenerarHorarioCompleto_();
+      const {year, monthIdx0} = horarioMesPartes_();
+      ensureMonthExpanded(year, monthIdx0);
+      saveState();
+    }
+    agregarNotificacion_({id:'n'+Date.now(), profesorId:profAntes,
+      titulo: esCreadaPorAdmin ? 'Sesión programada eliminada' : 'Cambio deshecho',
+      cuerpo: esCreadaPorAdmin
+        ? `Se eliminó (por error de programación) la sesión de ${nombreCliente} del ${fmtFechaCorta(fechaAntes)} ${horaAntes}, por ${STATE.user.nombre}. No queda como cancelación.`
+        : `Se deshizo el cambio de la clase de ${nombreCliente} del ${fmtFechaCorta(fechaAntes)} ${horaAntes} — vuelve a como está en el horario de Drive, por ${STATE.user.nombre}. No queda como cancelación.`,
+      hora:'Ahora', leido:false});
     renderNotifDrawer();
     closeModal();
     renderHorario();
-    toast('Sesión programada eliminada — no queda registrada como cancelación.', 'success');
+    toast(esCreadaPorAdmin
+      ? 'Sesión programada eliminada — no queda registrada como cancelación.'
+      : 'Cambio deshecho — la clase vuelve a como está en el horario de Drive.', 'success');
   });
 }
 
