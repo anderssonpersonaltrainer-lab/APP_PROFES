@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-22.1">
+<meta name="app-version" content="2026-08-22.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2453,6 +2453,37 @@ async function syncListaPreciosDesdeSheet_(){
 // justo después, en el mismo ciclo — ver _schedulePeriodicClienteDatosSync). Nunca inventa: si el
 // nombre no coincide con ninguna carpeta libre, o coincide con más de una, se deja como advertencia
 // para que Andersson lo revise a mano — igual criterio de seguridad que ya usa toda la app.
+// 22/08/2026 — trae la fecha de nacimiento desde el formulario de ingreso y la deja guardada en el
+// cliente, SOLO para clientes NUEVOS (id 'd...') que todavía no la tengan. A partir de ahí, la edad
+// se calcula sola cada vez que se muestra (ver fmtEdad/edadCalculadaDesdeNacimiento_) — nunca queda
+// un número fijo que alguien tenga que ir actualizando.
+// El emparejamiento es por CÉDULA, no por nombre: el formulario lo llena cada cliente a su manera
+// ("Ma Margarita Plata de Olarte") y casi nunca coincide exacto con el nombre de la carpeta de
+// Drive/la app ("Maria Margarita Plata") — la cédula, en cambio, es el mismo número en todos lados.
+// El backend ya descarta las filas cuya fecha no cuadra ni remotamente con la edad que la misma
+// persona escribió en el formulario (protección contra filas de prueba/error, ver
+// getFormularioIngresoAction_ del lado del Apps Script) — aquí no hace falta repetir ese chequeo.
+async function sincronizarFechaNacimientoDesdeFormulario_(){
+  if(!gasConfigured()) return;
+  const pendientes = CLIENTES.filter(c=>/^d/.test(c.id) && !c.fechaNacimiento && c.cc && c.cc!=='Pendiente');
+  if(!pendientes.length) return;
+  try{
+    const resp = await gasCall('formularioIngreso');
+    if(!resp || !Array.isArray(resp.filas)) return;
+    const porCedula = new Map();
+    resp.filas.forEach(f=>{ if(f.cedula) porCedula.set(f.cedula, f); });
+    let actualizados = 0;
+    pendientes.forEach(c=>{
+      const cedulaCliente = String(c.cc||'').replace(/\D/g,'');
+      const fila = porCedula.get(cedulaCliente);
+      if(fila && fila.fechaNacimiento){ c.fechaNacimiento = fila.fechaNacimiento; actualizados++; }
+    });
+    if(actualizados){ saveState(); if(STATE.module==='clientes') renderClientes(); }
+  }catch(e){
+    console.warn('sincronizarFechaNacimientoDesdeFormulario_ falló (se reintenta en el siguiente ciclo):', e);
+  }
+}
+
 async function syncBaseClientesDesdeSheet_(){
   if(!gasConfigured()) return {actualizados:0, creados:0, advertencias:[]};
   const advertencias = [];
@@ -2574,7 +2605,7 @@ function _schedulePeriodicClienteDatosSync(){
     // también va encadenada después de `syncBaseClientesDesdeSheet_`, igual que la lista de precios —
     // un cliente recién creado recibe su tarifa Y su Anamnesis en la misma pasada donde se crea.
     syncBaseClientesDesdeSheet_()
-      .then(()=>Promise.all([syncListaPreciosDesdeSheet_(), syncClienteDatosFromDrive()]))
+      .then(()=>Promise.all([syncListaPreciosDesdeSheet_(), syncClienteDatosFromDrive(), sincronizarFechaNacimientoDesdeFormulario_()]))
       .catch(e=>console.warn('Sync periódico de base de usuarios/lista de precios/anamnesis falló:', e));
   }, 6*60*60*1000);
 }
@@ -3104,7 +3135,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-22.1) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-22.2) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -3159,7 +3190,7 @@ function bootApp(startModule){
   // el `for` de syncClienteDatosFromDrive corrió). Ahora va encadenada DESPUÉS, igual que ya se hacía
   // con la lista de precios — mismo criterio, mismo arreglo.
   syncBaseClientesDesdeSheet_()
-    .then(()=>Promise.all([syncListaPreciosDesdeSheet_(), syncClienteDatosFromDrive()]))
+    .then(()=>Promise.all([syncListaPreciosDesdeSheet_(), syncClienteDatosFromDrive(), sincronizarFechaNacimientoDesdeFormulario_()]))
     .catch(e=>console.warn('Sync inicial de base de usuarios/lista de precios/anamnesis falló:', e));
   const clienteInicial = (typeof selectedClienteRegistro!=='undefined' && selectedClienteRegistro) ? CLIENTES.find(c=>c.id===selectedClienteRegistro) : null;
   if(clienteInicial) pullRegistrosForCliente(clienteInicial).catch(e=>console.warn('Sync inicial de registros falló:', e));
@@ -3331,7 +3362,24 @@ function clienteNombre(id){ const c = CLIENTES.find(x=>x.id===id); return c? c.n
 // titular. `buildScheduleFromGridData` guarda ese texto original en `s.nombreCrudo` — esta función es
 // el único lugar que decide qué mostrar: el texto crudo si existe, si no el nombre oficial de siempre.
 function nombreParaMostrar_(s){ return s.nombreCrudo || clienteNombre(s.clienteId); }
-function fmtEdad(c){ return c.edad==='Pendiente' ? 'Edad pendiente' : c.edad+' años'; }
+// 22/08/2026 — pedido de Andersson: la edad debe salir sola de la fecha de nacimiento que el
+// cliente escribe en el formulario de ingreso, y sumar un año sola con el paso del tiempo, en vez
+// de quedar fija en un número que alguien tenga que actualizar a mano.
+// Solo los clientes NUEVOS (a partir de hoy) llegan a tener `fechaNacimiento` — ver
+// sincronizarFechaNacimientoDesdeFormulario_. Para todos los demás, este cálculo nunca se activa y
+// se sigue mostrando exactamente igual que siempre (el número fijo que ya tenían, o "Pendiente").
+function edadCalculadaDesdeNacimiento_(fechaISO){
+  const p = fechaISO.split('-').map(Number);
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - p[0];
+  const mesHoy = hoy.getMonth()+1, diaHoy = hoy.getDate();
+  if(mesHoy < p[1] || (mesHoy===p[1] && diaHoy < p[2])) edad--;
+  return edad;
+}
+function fmtEdad(c){
+  if(c.fechaNacimiento) return edadCalculadaDesdeNacimiento_(c.fechaNacimiento)+' años';
+  return c.edad==='Pendiente' ? 'Edad pendiente' : c.edad+' años';
+}
 function fmtCC(c){ return c.cc==='Pendiente' ? 'CC pendiente' : 'CC '+c.cc; }
 function profesorNombre(id){ const p = PROFESORES.find(x=>x.id===id); return p? p.nombre : id; }
 
