@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-21.7">
+<meta name="app-version" content="2026-08-22.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1415,6 +1415,15 @@ function buildScheduleFromGridData(data){
         // clienteId (el titular, para que factura/registro sigan igual), se guarda el texto original
         // aparte para que el horario siga mostrando los dos nombres (ver nombreParaMostrar_).
         const nombreCrudo = esAliasCombinado_(texto) ? limpiarTextoClienteCrudo_(texto) : null;
+        // 22/08/2026 — pedido de Andersson: para un cliente NUEVO (detectado automáticamente desde
+        // Drive), la Anamnesis solo debe mostrarse si el nombre coincide EXACTO entre la carpeta, la
+        // base de usuarios y el horario — no basta con que el texto del documento lo mencione (ver
+        // el caso real de Maria Margarita Plata, cuya Anamnesis solo la llama "Margarita", su
+        // segundo nombre). `nombreEnHorario_` guarda el texto de la celda tal cual, SIEMPRE (no solo
+        // en las combinadas) — es un campo interno para esa validación, distinto de `nombreCrudo`
+        // (que sí afecta lo que se muestra en la tarjeta): así esta captura no cambia absolutamente
+        // nada de lo que ya se ve en el horario.
+        const nombreEnHorario_ = limpiarTextoClienteCrudo_(texto);
         let tipoLabel = 'Entrenamiento adaptado Presencial', lugar = 'Domicilio cliente';
         if(categoria==='virtual'){ tipoLabel='Entrenamiento adaptado Online'; lugar='Online'; }
         else if(categoria==='masaje'){ tipoLabel='Masaje terapéutico'; lugar='Domicilio cliente'; }
@@ -1428,7 +1437,7 @@ function buildScheduleFromGridData(data){
         // la hora real de inicio (la ya extraída del texto de la celda) + 60 minutos fijos, igual que
         // en cualquier otro lugar de la app donde se define una clase (Reasignar/Programar/Agendar).
         const horaRealInicio = extraerHoraDeTexto(texto, bloque.inicio);
-        nuevo.push({id:idBase, clienteId, profesorId:tab.profesorId, dia:diaIdx, hora:horaRealInicio, horaFin:calcHoraFin(horaRealInicio, 60), tipo:tipoLabel, lugar, estado:'pendiente', ...(nombreCrudo?{nombreCrudo}:{})});
+        nuevo.push({id:idBase, clienteId, profesorId:tab.profesorId, dia:diaIdx, hora:horaRealInicio, horaFin:calcHoraFin(horaRealInicio, 60), tipo:tipoLabel, lugar, estado:'pendiente', nombreEnHorario_, ...(nombreCrudo?{nombreCrudo}:{})});
       });
     }
   });
@@ -2266,6 +2275,29 @@ async function syncScheduleFromDrive(){
 // cédula (más confiable) y, si no hay coincidencia de cédula, por nombre. Ver la nota de seguridad
 // arriba — este chequeo es lo que evita aplicar automáticamente el error real ya encontrado en Drive
 // (Anamnesis de Sebastian Garay con el texto de Patricia Valencia).
+// 22/08/2026 — validación reforzada pedida por Andersson para clientes NUEVOS: la carpeta de Drive
+// es la fuente de verdad de la identidad (regla ya establecida en este proyecto). Para un cliente
+// recién detectado automáticamente (id 'd...', ver syncBaseClientesDesdeSheet_ — su nombre SALE
+// literal del nombre de la carpeta), si además su nombre aparece EXACTO — no "contiene", exacto —
+// en al menos una celda del horario, las tres fuentes (carpeta, base de usuarios, horario) quedan
+// alineadas y se puede confiar en CUALQUIER Anamnesis que se encuentre dentro de esa carpeta, sin
+// tener que revisar si el texto del documento menciona su nombre (eso es lo que fallaba con
+// "Margarita", que en su Anamnesis nunca aparece como "Maria" ni "Plata").
+// Excepción: si la carpeta la comparte OTRO cliente (ya pasa con parejas que entrenan juntas, ej.
+// Jorge Restrepo/Camila Sarmiento), confiar a ciegas en "todo lo de la carpeta es de este cliente"
+// sería inseguro — en ese caso se usa siempre la validación de siempre, por contenido del texto.
+function _identidadDeClienteNuevoConfirmada_(cliente){
+  if(!cliente || !/^d/.test(cliente.id)) return false;   // solo aplica a clientes nuevos
+  const carpetaCompartida = CLIENTES.some(c=>c.id!==cliente.id && c.drive && c.drive===cliente.drive);
+  if(carpetaCompartida) return false;
+  // Se consulta SCHEDULE_TEMPLATE (la plantilla semanal cruda) y no SCHEDULE (los meses ya
+  // expandidos), porque la plantilla se trae siempre al arrancar la app, sin importar el rol ni si
+  // se llegó a visitar el módulo Horario — así esta validación nunca falla por una razón ajena a la
+  // identidad real del cliente.
+  const nombreCliente = normalizeNombre(cliente.nombre);
+  return SCHEDULE_TEMPLATE.some(s=> s.clienteId===cliente.id && s.nombreEnHorario_ &&
+    normalizeNombre(s.nombreEnHorario_)===nombreCliente);
+}
 function anamnesisPerteneceACliente(texto, cliente){
   if(!texto) return false;
   const textoNorm = normalizeNombre(texto);
@@ -3072,7 +3104,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-21.7) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-22.1) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -7078,9 +7110,22 @@ async function refrescarAnamnesisFicha_(c){
     const resp = await gasCall('clienteExcel', {folderId: c.drive, nombre: c.nombre});
     if(resp && resp.found && !resp.error){
       const texto = (resp.anamnesis || '').trim();
-      if(texto && anamnesisPerteneceACliente(texto, c) && texto !== c.anamnesisCompleta){
-        c.anamnesisCompleta = texto;
-        saveState();
+      if(texto){
+        // 22/08/2026: para un cliente nuevo con identidad confirmada (carpeta+base+horario
+        // coinciden, ver _identidadDeClienteNuevoConfirmada_) se confía en la Anamnesis de su
+        // carpeta sin depender de que el texto mencione su nombre completo. Para el resto de
+        // clientes se mantiene intacta la validación de siempre, por contenido.
+        const confirmada = _identidadDeClienteNuevoConfirmada_(c);
+        if(confirmada || anamnesisPerteneceACliente(texto, c)){
+          if(texto !== c.anamnesisCompleta){ c.anamnesisCompleta = texto; saveState(); }
+        } else if(/^d/.test(c.id) && !c._anamnesisSinConfirmarAvisado){
+          // Cliente nuevo cuya identidad NO se pudo confirmar en las tres fuentes: se avisa al
+          // administrador UNA sola vez (no en cada refresco) y no se muestra la Anamnesis.
+          c._anamnesisSinConfirmarAvisado = true;
+          saveState();
+          agregarNotificacion_({id:'n'+Date.now()+'_anamnoconf_'+c.id, adminOnly:true,
+            titulo:'Anamnesis sin confirmar', cuerpo:`Se encontró un archivo de Anamnesis en la carpeta de ${c.nombre}, pero su nombre no coincide EXACTO entre la carpeta, la base de usuarios y el horario — no se mostró, por seguridad. Revisa que el nombre esté escrito igual en los tres lugares.`, hora:'Ahora', leido:false});
+        }
       }
     }
   }catch(e){
