@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-22.5">
+<meta name="app-version" content="2026-08-22.6">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2050,6 +2050,17 @@ async function syncScheduleOverridesFromServer(){
   try{
     const data = await gasCall('getScheduleOverrides');
     if(data && Array.isArray(data.overrides)){
+      // 22/08/2026 — BUCLE REAL encontrado con Andersson: una reasignación borrada REAPARECÍA sola
+      // una y otra vez, aunque se borrara correctamente desde la app (que la quita del dispositivo Y
+      // del servidor). Causa: lo que llega del servidor NO se marcaba como ya confirmado. Al
+      // aplicarse sobre el horario (`Object.assign` en applyScheduleOverridesToMonth_), la fila
+      // quedaba con `asignadoPorAdmin` pero SIN `sincronizadoServidor` — y la red de reenvío
+      // automático (`reenviarCambiosLocalesAlServidor_`, que sube todo lo que tenga esas banderas
+      // sin confirmar) la volvía a subir. Se borraba, el siguiente ciclo la traía de vuelta, la
+      // red la resubía, y así para siempre.
+      // Si vino DEL servidor, por definición ya está en el servidor. `syncSuspensionesFromServer` y
+      // `pullRegistrosForCliente` ya hacían exactamente esto; esta función era la única que faltaba.
+      data.overrides.forEach(o=>{ if(o) o.sincronizadoServidor = true; });
       const idsServidor = new Set(data.overrides.map(o=>o.id));
       const pendientes = SCHEDULE_OVERRIDES.filter(o=> o && o.id && o.sincronizadoServidor!==true && !idsServidor.has(o.id));
       SCHEDULE_OVERRIDES = [...data.overrides, ...pendientes];
@@ -3170,7 +3181,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-22.5) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-22.6) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
