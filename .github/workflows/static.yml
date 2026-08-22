@@ -31,6 +31,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # 22/08/2026 — verificacion obligatoria ANTES de publicar. Si falla, este paso corta el
+      # despliegue y la app NO se actualiza: se queda sirviendo la version anterior, que funciona.
+      # Nacio despues de caer dos veces en la misma trampa (un backtick dentro de un comentario HTML
+      # rompe el bloque <script> entero; el 09/08/2026 dejo la app en blanco en produccion).
+      # Ver verificar-antes-de-publicar.py para el detalle de lo que revisa.
+      - name: Verificar antes de publicar
+        run: python3 verificar-antes-de-publicar.py
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
