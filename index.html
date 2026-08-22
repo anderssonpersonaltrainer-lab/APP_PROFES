@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-22.6">
+<meta name="app-version" content="2026-08-22.8">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2664,12 +2664,16 @@ let _scheduleOverridesSyncTimer = null;
 function _schedulePeriodicScheduleOverridesSync(){
   if(_scheduleOverridesSyncTimer) clearInterval(_scheduleOverridesSyncTimer);
   _scheduleOverridesSyncTimer = setInterval(()=>{
-    syncScheduleOverridesFromServer().catch(e=>console.warn('Sync periódico de cambios de horario falló:', e));
-    syncSuspensionesFromServer().catch(e=>console.warn('Sync periódico de suspensiones falló:', e));
-    syncNotificacionesFromServer().catch(e=>console.warn('Sync periódico de notificaciones falló:', e));
     // 27/07/2026: en cada ciclo también se intenta el reenvío automático (solo hace algo real si hay
     // algo pendiente sin confirmar en ESTE dispositivo — ver _intentarReenvioAutomaticoDeCambiosLocales_).
-    _intentarReenvioAutomaticoDeCambiosLocales_();
+    // 22/08/2026: el reenvío ahora ESPERA a que lleguen y se apliquen los cambios del servidor. Antes
+    // arrancaba en paralelo y miraba el SCHEDULE viejo, así que resubía cambios ya borrados a
+    // propósito — cada 2 minutos, indefinidamente. Es la misma carrera del arranque (ver allá).
+    syncScheduleOverridesFromServer()
+      .catch(e=>console.warn('Sync periódico de cambios de horario falló:', e))
+      .then(()=> _intentarReenvioAutomaticoDeCambiosLocales_());
+    syncSuspensionesFromServer().catch(e=>console.warn('Sync periódico de suspensiones falló:', e));
+    syncNotificacionesFromServer().catch(e=>console.warn('Sync periódico de notificaciones falló:', e));
   }, 2*60*1000);
 }
 
@@ -3181,7 +3185,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-22.6) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-22.8) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -3194,13 +3198,15 @@ function bootApp(startModule){
       console.info('Horario: reconstruccion completa tras actualizar a', versionApp);
     }
   }catch(e){ /* si el navegador bloquea el almacenamiento, simplemente no se fuerza */ }
-  loadPublishedSchedule().catch(e=>console.warn('Carga inicial de horario publicado falló:', e));
+  // 22/08/2026: se guardan las promesas de estas dos (ver la nota de la CARRERA más abajo) — el
+  // reenvío automático debe esperarlas, no arrancar en paralelo con ellas.
+  const _pHorarioPublicado = loadPublishedSchedule().catch(e=>console.warn('Carga inicial de horario publicado falló:', e));
   // 26/07/2026: además de la plantilla recurrente (arriba), se traen los cambios puntuales de
   // horario (Programar cliente/Reasignar profesor/Agendar masaje) que cualquier dispositivo haya
   // guardado — así el celular del administrador y el de cada profesor ven exactamente lo mismo, sin
   // importar en qué dispositivo se haya hecho el cambio. Ver la nota completa junto a
   // syncScheduleOverridesFromServer.
-  syncScheduleOverridesFromServer().catch(e=>console.warn('Carga inicial de cambios de horario falló:', e));
+  const _pCambiosHorario = syncScheduleOverridesFromServer().catch(e=>console.warn('Carga inicial de cambios de horario falló:', e));
   // 18/08/2026: las suspensiones se traen en el mismo momento y por el mismo motivo.
   syncSuspensionesFromServer().catch(e=>console.warn('Carga inicial de suspensiones falló:', e));
   // 19/08/2026: aviso en pantalla si la revision nocturna encontro algo (solo al administrador).
@@ -3221,7 +3227,18 @@ function bootApp(startModule){
   // _intentarReenvioAutomaticoDeCambiosLocales_. Esto es lo que hace innecesario acordarse de
   // presionar "Reenviar cambios a todos" a mano, y cubre igual las cancelaciones de clase (que
   // cualquier profesor puede hacer, no solo el administrador).
-  _intentarReenvioAutomaticoDeCambiosLocales_();
+  // 22/08/2026 — CARRERA REAL corregida. El reenvío automático arrancaba AL MISMO TIEMPO que
+  // `loadPublishedSchedule` y `syncScheduleOverridesFromServer` (ninguna de esas llamadas se espera:
+  // todas se disparan y siguen). Resultado: la red de reenvío miraba el `SCHEDULE` VIEJO que venía
+  // del localStorage —antes de que llegara nada del servidor y antes de la reconstrucción por cambio
+  // de versión— y resubía cambios que ya se habían borrado a propósito. Así resucitó la clase de
+  // Alberto del viernes 28 a la mañana siguiente, pese al arreglo del día anterior: la corrección
+  // era correcta, pero la carrera al arrancar le ganaba.
+  // Ahora el reenvío ESPERA a que el horario publicado y los cambios del servidor estén aplicados.
+  // Solo entonces mira qué quedó realmente sin subir. Si algo de eso falla, igual se intenta el
+  // reenvío (mismo comportamiento de antes) — nunca se queda sin correr.
+  Promise.allSettled([_pHorarioPublicado, _pCambiosHorario])
+    .then(()=> _intentarReenvioAutomaticoDeCambiosLocales_());
   // 31/07/2026: sync inicial de la lista de precios maestra (además del ciclo cada 6h de abajo) — así
   // un cambio reciente en Drive (como el que Andersson acaba de hacer) se aplica apenas alguien abre
   // la app, sin tener que esperar hasta 6 horas ni pedir un paso manual aparte.
@@ -3792,6 +3809,19 @@ function categoriaSesion(tipo){
   return TIPO_SESION_META.presencial;
 }
 
+// 22/08/2026 — se QUITÓ el botón "Reasignar profesor" por decisión de Andersson. Hacía exactamente
+// lo mismo que "Reprogramar" (que ya permite cambiar profesor, fecha, hora y tipo de sesión) pero
+// con un defecto grave: los cambios de HORA se descartaban en silencio. La regla "la hora la manda
+// el Excel de Drive" (ver applyScheduleOverridesToMonth_) solo acepta mover la hora cuando es una
+// reprogramación vigente (bandera `reprogramadoPorAdmin`), y Reasignar dejaba otra bandera
+// (`asignadoPorAdmin`). Verificado con datos reales: pidiendo el MISMO cambio a las 11:00,
+// Reprogramar lo aplicaba y Reasignar lo revertía a la hora original de Drive.
+// Dos botones para lo mismo, y uno roto, solo multiplicaban las probabilidades de dejar una clase
+// mal — que fue exactamente lo que pasó con la clase de Alberto Acevedo el 21-22/08.
+// `openReasignarModal` se conserva más abajo (ya sin ningún botón que la llame) para no romper nada
+// que pudiera referenciarla, pero ya no es alcanzable desde la interfaz.
+// Se comprobó antes de quitarlo que NO había ninguna reasignación guardada con la hora descartada
+// (0 de 0), así que no hubo ningún dato que reparar.
 function claseCardHTML(s){
   // Bloques especiales leídos tal cual de Drive (no son una clase de un cliente): Desplazamiento, Almuerzo.
   // 30/07/2026: los bloques "Disponible", los espacios liberados por cancelación y los liberados por
@@ -3838,7 +3868,8 @@ function claseCardHTML(s){
       reprogramación, se pueda reprogramar". Mover una clase de hora NO es cancelarla: no tiene costo
       de cancelación ni debe ensuciar el historial del cliente (ver openReprogramarModal). -->
       ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;color:var(--accent-dark);border-color:var(--accent);" data-reprogramar="${s.id}" onclick="event.stopPropagation();openReprogramarModal('${s.id}')">Reprogramar</button>`:''}
-      ${isAdminOverview()?`<button class="btn btn-outline" style="padding:4px 10px;font-size:11.5px;" data-reasignar="${s.id}" onclick="event.stopPropagation();openReasignarModal('${s.id}')">Reasignar profesor</button>`:''}
+      <!-- 22/08/2026: se quito el boton "Reasignar profesor". Ver la nota completa arriba de
+      claseCardHTML (fuera de este template literal, porque un backtick aqui adentro rompe la app). -->
       <!-- 03/08/2026: pedido explícito de Andersson — si programó una sesión única en el día/hora
       equivocado, necesita poder quitarla sin que quede como una cancelación (eso afectaría la
       cuenta de cobro y las estadísticas del cliente por algo que nunca debió existir). Solo
@@ -3994,14 +4025,17 @@ function openReasignarModal(id){
           </select>
         </div>
         <div class="field">
-          <label>Día <span class="req">*</span></label>
-          <select id="rDia" required>
-            ${DIAS.map((dname,di)=>`<option value="${di}" ${di===s.dia?'selected':''}>${dname}</option>`).join('')}
-          </select>
+          <label>Fecha <span class="req">*</span></label>
+          <input type="date" id="rFecha" value="${s.fecha}" required>
         </div>
         <div class="field">
           <label>Hora <span class="req">*</span></label>
           <input type="time" id="rHora" value="${s.hora}" required>
+        </div>
+        <div class="field">
+          <label>Tipo de sesión</label>
+          <select id="rTipo">${modalidadSelectOptionsHTML(s.tipo)}</select>
+          <small>Déjalo igual si no cambia el tipo de sesión (ej. de entrenamiento a masaje).</small>
         </div>
       </form>
     </div>
@@ -4014,19 +4048,31 @@ function openReasignarModal(id){
     const form = document.getElementById('reasignarForm');
     if(!form.reportValidity()) return;
     const nuevoProfesorId = document.getElementById('rProfesor').value;
-    const nuevoDia = Number(document.getElementById('rDia').value);
+    // 22/08/2026 — mismo arreglo que se le hizo a Reprogramar: FECHA REAL en vez de un selector de
+    // día de la semana (que hacía asumir "la próxima semana" y fue lo que dejó mal la clase de
+    // Alberto), y selector de TIPO DE SESIÓN (antes no se podía reasignar como masaje desde aquí).
+    // La fecha manda: el día de la semana se deriva de ella, nunca al revés.
+    const nuevaFecha = document.getElementById('rFecha').value;
     const nuevaHora = document.getElementById('rHora').value;
+    const nuevoTipo = modalidadCanonica_(document.getElementById('rTipo').value) || s.tipo;
+    const nuevoDia = (new Date(nuevaFecha+'T00:00:00').getDay() + 6) % 7;
     const anteriorProfesorId = s.profesorId;
-    const anteriorDia = s.dia, anteriorHora = s.hora;
+    const anteriorDia = s.dia, anteriorHora = s.hora, anteriorFecha = s.fecha, anteriorTipo = s.tipo;
     if(!s.profesorOriginalId) s.profesorOriginalId = anteriorProfesorId;
+    if(nuevoTipo!==anteriorTipo && !s.tipoOriginal) s.tipoOriginal = anteriorTipo;
     s.profesorId = nuevoProfesorId;
     if(s.horaFin){ s.horaFin = calcHoraFin(nuevaHora, 60); }
     s.dia = nuevoDia;
     s.hora = nuevaHora;
-    s.fecha = fechaParaDiaEnSemanaDe_(s.fecha, nuevoDia);
+    s.fecha = nuevaFecha;
+    if(nuevoTipo!==anteriorTipo){
+      s.tipo = nuevoTipo;
+      if(nuevoTipo.includes('Online')) s.lugar = 'Online';
+      else if(s.lugar==='Online') s.lugar = 'Domicilio cliente';
+    }
     s.asignadoPorAdmin = true;
-    const detalleCambio = (nuevoDia!==anteriorDia || nuevaHora!==anteriorHora)
-      ? ` y movida a ${DIAS[nuevoDia]} ${nuevaHora}`
+    const detalleCambio = (nuevaFecha!==anteriorFecha || nuevaHora!==anteriorHora || nuevoTipo!==anteriorTipo)
+      ? ` y movida a ${DIAS[nuevoDia]} ${fmtFechaCorta(nuevaFecha)} ${nuevaHora}${nuevoTipo!==anteriorTipo?' ('+nuevoTipo+')':''}`
       : '';
     agregarNotificacion_({id:'n'+Date.now(), profesorId:nuevoProfesorId, titulo:'Clase asignada por administrador', cuerpo:`${nombreParaMostrar_(s)} — ${DIAS[anteriorDia]} ${anteriorHora}, reasignada de ${profesorNombre(anteriorProfesorId)} a ${profesorNombre(nuevoProfesorId)}${detalleCambio} por ${STATE.user.nombre}.`, hora:'Ahora', leido:false});
     renderNotifDrawer();
