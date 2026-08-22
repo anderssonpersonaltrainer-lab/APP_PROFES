@@ -29,24 +29,33 @@ errores = []
 avisos = []
 
 
-def leer(ruta):
+def leer(ruta, obligatorio=True):
     try:
         return io.open(ruta, encoding='utf-8').read()
     except FileNotFoundError:
-        errores.append(f'FALTA el archivo {ruta}')
+        if obligatorio:
+            errores.append(f'FALTA el archivo {ruta}')
         return None
 
 
-app = leer(APP)
+# `andersson-app.html` es la copia de TRABAJO local y no vive en el repositorio (alli solo esta
+# `index.html`, que es lo que sirve GitHub Pages). Por eso no es obligatorio: cuando este script
+# corre dentro de GitHub Actions simplemente no existe, y eso no es un error — se verifica
+# `index.html`, que es el archivo que de verdad se publica.
 index = leer(INDEX)
+app = leer(APP, obligatorio=False)
+EN_REPOSITORIO = app is None
+
+# Todas las comprobaciones de contenido se hacen sobre el archivo que SE PUBLICA.
+contenido = index if index is not None else app
 
 # ---------------------------------------------------------------- 1
 # LA TRAMPA QUE YA NOS MORDIO DOS VECES.
 # Un backtick o un ${...} dentro de un comentario HTML rompe el template literal
 # que lo contiene. Los comentarios largos van FUERA, encima de la funcion, con //.
-if app:
-    for m in re.finditer(r'<!--[\s\S]*?-->', app):
-        linea = app[:m.start()].count('\n') + 1
+if contenido:
+    for m in re.finditer(r'<!--[\s\S]*?-->', contenido):
+        linea = contenido[:m.start()].count('\n') + 1
         texto = m.group(0)
         if '`' in texto:
             errores.append(f'linea {linea}: comentario HTML con BACKTICK — rompe el <script> entero')
@@ -67,8 +76,8 @@ if app is not None and index is not None:
 # La version del <meta> y la de version.json tienen que coincidir. Si no, el
 # mecanismo de auto-actualizacion queda detectando una version nueva para
 # siempre, o no la detecta nunca (ver la nota junto a checkForUpdate).
-if app:
-    m = re.search(r'<meta name="app-version" content="([^"]+)">', app)
+if contenido:
+    m = re.search(r'<meta name="app-version" content="([^"]+)">', contenido)
     version_meta = m.group(1) if m else None
     if not version_meta:
         errores.append('no se encontro <meta name="app-version"> en el HTML')
@@ -91,7 +100,7 @@ for archivo in ['manifest.json', 'sw.js', 'icon192.png', 'icon512.png']:
 
 # ---------------------------------------------------------------- 5
 # Ningun token de GitHub puede quedar dentro de lo que se publica.
-if app and re.search(r'github_pat_[A-Za-z0-9_]{20,}', app):
+if contenido and re.search(r'github_pat_[A-Za-z0-9_]{20,}', contenido):
     errores.append('HAY UN TOKEN DE GITHUB dentro del HTML — no publicar')
 
 # ---------------------------------------------------------------- resultado
