@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-22.8">
+<meta name="app-version" content="2026-08-23.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3185,7 +3185,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-22.8) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-23.1) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -4743,6 +4743,10 @@ function weekdayIdxFromISO(fechaISO){ // 0=lunes..5=sábado, -1=domingo (sin age
 // distinto (pasado o futuro), se calcula el mes COMPLETO (día 1 al último día), porque no hay un
 // "hoy" dentro de ese mes que sirva de punto de partida. Devuelve también el rango de fechas usado,
 // para que renderDisponibilidad() no tenga que recalcularlo por su cuenta.
+// 23/08/2026 — YA NO SE USA. El panel de Disponibilidad paso de ser una lista mensual de espacios
+// libres a un cuadro SEMANAL por profesor (ver computeSemanaDisponibilidad_/renderDisponibilidad).
+// Se conserva sin borrar por si alguna vez se quiere volver a la vista por mes, y para no arriesgar
+// romper algo que la referenciara. No la llama nadie.
 function computeDisponibilidad(mesStr){
   mesStr = mesStr || STATE.disponibilidadMes;
   const [y, m] = mesStr.split('-').map(Number);
@@ -4783,11 +4787,19 @@ function computeDisponibilidad(mesStr){
 // envío por correo" (que no hacía nada real) por un archivo Excel real que se puede compartir por
 // WhatsApp o correo. Se genera CSV (se abre directo en Excel, sin necesitar ninguna librería) con
 // BOM al inicio para que Excel reconozca acentos/ñ correctamente.
-function buildDisponibilidadCSV_(data){
-  const filas = [['Profesor','Fecha','Hora inicio','Hora fin','Motivo']];
+// 23/08/2026: adaptado a la vista SEMANAL. Antes recibia una lista plana de espacios libres por
+// profesor; ahora recibe la semana completa (clases agendadas Y libres, agrupadas por dia), asi que
+// el archivo que se comparte incluye la semana entera, no solo los huecos. Se agrega la columna
+// "Estado" para distinguir una clase agendada de un espacio libre.
+function buildDisponibilidadCSV_(porProfesor, dias){
+  const filas = [['Profesor','Fecha','Hora inicio','Hora fin','Estado','Detalle']];
   PROFESORES.forEach(p=>{
-    (data[p.id]||[]).forEach(sl=>{
-      filas.push([p.nombre, fmtFechaCorta(sl.fecha), sl.hora, sl.horaFin||'', sl.motivo||'']);
+    (dias||[]).forEach(f=>{
+      const slots = (porProfesor[p.id] && porProfesor[p.id][f]) || [];
+      slots.forEach(sl=>{
+        filas.push([p.nombre, fmtFechaCorta(f), sl.hora, sl.horaFin||'',
+                    sl.libre?'LIBRE':'Clase', sl.libre ? (sl.motivo||'') : (sl.texto||'')]);
+      });
     });
   });
   const csv = filas.map(row=>row.map(v=>{
@@ -4800,16 +4812,16 @@ function buildDisponibilidadCSV_(data){
 // Mismo patrón que shareInvoicePDF (ver más abajo): Web Share API con archivo cuando el navegador lo
 // soporta (celular — abre el menú nativo con WhatsApp/Gmail/etc, el archivo queda adjunto solo); si
 // no, se descarga el Excel y se abre WhatsApp Web / el correo con el mensaje listo para adjuntar a mano.
-async function shareDisponibilidad_(via, data, inicio, fin){
+async function shareDisponibilidad_(via, porProfesor, inicio, fin, dias){
   const btnId = via==='whatsapp' ? 'btnDispWhatsapp' : 'btnDispCorreo';
   const btn = document.getElementById(btnId);
   const original = btn.innerHTML;
   btn.innerHTML = 'Generando…'; btn.disabled = true;
   try{
-    const csv = buildDisponibilidadCSV_(data);
-    const filename = `Disponibilidad_${inicio}_a_${fin}.csv`;
+    const csv = buildDisponibilidadCSV_(porProfesor, dias);
+    const filename = `Horario_semana_${inicio}_a_${fin}.csv`;
     const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-    const mensaje = `Disponibilidad de los profesores del ${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)}.`;
+    const mensaje = `Horario de la semana del ${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)} — clases y espacios libres por profesor.`;
     try{
       const file = new File([blob], filename, {type:'text/csv'});
       const canShareFile = navigator.canShare && navigator.canShare({files:[file]});
@@ -4841,75 +4853,153 @@ async function shareDisponibilidad_(via, data, inicio, fin){
   btn.innerHTML = original; btn.disabled = false;
 }
 
+// ===================== VISTA SEMANAL DE DISPONIBILIDAD (23/08/2026) =====================
+// Pedido de Andersson: en vez de una lista de espacios libres del mes, un CUADRO POR PROFESOR con
+// la semana completa (clases agendadas Y espacios libres), para ver de un vistazo como queda cada
+// dia de cada profesor y poder planear la semana siguiente.
+//
+// Por que NO es una cuadricula clasica de "una fila por hora": se revisaron los horarios REALES
+// antes de disenar. Las clases no caen en horas parejas (Daniel tiene 15:15, 15:40, 15:45, 16:20,
+// 16:45, 17:20, 18:40; Karen 09:20, 10:20, 10:30) y las duraciones van de 15 a 210 minutos. Una
+// rejilla por hora partiria una clase de 15:45-16:45 entre dos filas y perderia los bloques de 15
+// minutos. Por eso cada dia muestra sus franjas REALES, en orden, con su hora exacta.
+//
+// Solo LEE: reutiliza calcularEspaciosLibres_ y SCHEDULE, igual que la vista anterior. No toca
+// registros, cancelaciones ni reprogramaciones.
+function lunesDeLaSemanaDe_(fechaISO){
+  const [y,m,d] = fechaISO.split('-').map(Number);
+  const f = new Date(y, m-1, d);
+  const dia = (f.getDay()+6)%7;          // 0 = lunes
+  f.setDate(f.getDate() - dia);
+  return isoDate(f);
+}
+function sumarDias_(fechaISO, n){
+  const [y,m,d] = fechaISO.split('-').map(Number);
+  const f = new Date(y, m-1, d);
+  f.setDate(f.getDate() + n);
+  return isoDate(f);
+}
+// Arranca en la semana SIGUIENTE (que es la que Andersson usa para planear), pero con flechas para
+// moverse a cualquier otra.
+function semanaInicialDisponibilidad_(){
+  return sumarDias_(lunesDeLaSemanaDe_(isoDate(new Date())), 7);
+}
+// Devuelve, por profesor, las franjas de cada dia de la semana: las clases agendadas y los espacios
+// libres, todo junto y ordenado por hora. `libre:true` marca los huecos.
+function computeSemanaDisponibilidad_(lunesISO){
+  const dias = [];
+  for(let i=0;i<7;i++) dias.push(sumarDias_(lunesISO, i));
+  // Asegurar que TODOS los meses que toca esta semana esten expandidos (una semana puede cruzar
+  // de un mes al siguiente, ej. del 31 de agosto al 1 de septiembre).
+  const mesesTocados = [...new Set(dias.map(f=>f.slice(0,7)))];
+  mesesTocados.forEach(mes=>{
+    const [y,m] = mes.split('-').map(Number);
+    ensureMonthExpanded(y, m-1);
+  });
+  const porProfesor = {};
+  PROFESORES.forEach(p=>{ porProfesor[p.id] = {}; dias.forEach(f=> porProfesor[p.id][f] = []); });
+  dias.forEach(fechaISO=>{
+    const delDia = SCHEDULE.filter(s=>s.fecha===fechaISO);
+    const {espacios} = calcularEspaciosLibres_(delDia);
+    // clases realmente agendadas (no las que quedaron liberadas por cancelacion/suspension)
+    delDia.filter(s=> s.clienteId && !esBloqueDisponibleVisual_(s)).forEach(s=>{
+      if(!porProfesor[s.profesorId]) return;
+      porProfesor[s.profesorId][fechaISO].push({
+        hora:s.hora, horaFin:s.horaFin || calcHoraFin(s.hora,60),
+        texto: nombreParaMostrar_(s), tipo:s.tipo, libre:false,
+      });
+    });
+    espacios.forEach(esp=>{
+      if(!porProfesor[esp.profesorId]) return;
+      porProfesor[esp.profesorId][fechaISO].push({
+        hora:esp.hora, horaFin:esp.horaFin,
+        texto:'LIBRE', motivo:(esp.notas&&esp.notas.length)?esp.notas.join(' · '):'', libre:true,
+      });
+    });
+  });
+  Object.values(porProfesor).forEach(porDia=>{
+    Object.values(porDia).forEach(arr=> arr.sort((a,b)=>a.hora.localeCompare(b.hora)));
+  });
+  return {dias, porProfesor};
+}
+
 function renderDisponibilidad(){
   const el = document.getElementById('mod-disponibilidad');
+  if(!STATE.disponibilidadSemana) STATE.disponibilidadSemana = semanaInicialDisponibilidad_();
+  const lunes = STATE.disponibilidadSemana;
+  const {dias, porProfesor} = computeSemanaDisponibilidad_(lunes);
   const hoy = isoDate(new Date());
-  const {porProfesor: data, inicio, fin, esMesActual} = computeDisponibilidad();
-  const totalSlots = Object.values(data).reduce((a,arr)=>a+arr.length,0);
-  const [yMes, mMes] = STATE.disponibilidadMes.split('-').map(Number);
-  const mesLabel = MESES_LARGO[mMes-1].replace(/^./, c=>c.toUpperCase()) + ' ' + yMes;
+  const domingo = dias[6];
+  const NOMBRES_DIA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
 
-  // 25/07/2026: se agrega navegación de mes (‹ ›) — pedido explícito de Andersson para poder revisar
-  // días antes de que empiece un mes qué espacios van a quedar libres por una suspensión temporal ya
-  // registrada (ej. una cliente que avisa hoy que en agosto no toma clases). No se permite retroceder
-  // antes del mes real de hoy — un reporte de disponibilidad de un mes ya pasado no aporta nada útil.
-  const mesRealHoy = hoy.slice(0,7);
-  const puedeRetroceder = STATE.disponibilidadMes > mesRealHoy;
+  // Solo se muestran los dias que tienen algo (asi el sabado/domingo no ocupan espacio si estan vacios).
+  const diasConAlgo = dias.filter(f=> PROFESORES.some(p=> (porProfesor[p.id][f]||[]).length));
+
   el.innerHTML = `
     <div class="card fade-up" style="padding:16px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;background:var(--teal-light);border:none;">
-      <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.mail}</span>
-      <div style="font-size:12.5px;color:var(--teal-dark);line-height:1.6;">
-        Espacios ya confirmados. Usa las flechas para ver otro mes, y comparte la lista en Excel por WhatsApp o correo.
+      <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.calendar}</span>
+      <div style="font-size:13px;color:var(--teal-dark);line-height:1.6;">
+        La semana completa de cada profesor: sus clases agendadas y los espacios libres, en orden.
+        Los espacios libres incluyen los que se liberan por <strong>cancelaciones</strong> y <strong>suspensiones</strong>.
       </div>
     </div>
-    <div class="fade-up" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <div class="card" style="padding:12px 16px;display:flex;gap:8px;align-items:center;">
-        <button class="btn btn-ghost btn-sm" id="btnDispMesAnterior" title="Mes anterior" ${puedeRetroceder?'':'disabled'} style="padding:2px 8px;font-weight:800;${puedeRetroceder?'':'opacity:.35;cursor:not-allowed;'}">‹</button>
-        <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
-        <span style="font-size:13.5px;font-weight:600;min-width:170px;text-align:center;">${esMesActual ? `Desde hoy (${fmtFechaCorta(inicio)}) hasta fin de ${mesLabel.toLowerCase()}` : `${mesLabel} completo (${fmtFechaCorta(inicio)} al ${fmtFechaCorta(fin)})`}</span>
-        <button class="btn btn-ghost btn-sm" id="btnDispMesSiguiente" title="Mes siguiente" style="padding:2px 8px;font-weight:800;">›</button>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-outline btn-sm" id="btnDispWhatsapp"><span style="width:14px;height:14px;display:inline-flex">${ICONS.mail}</span>Compartir por WhatsApp</button>
-        <button class="btn btn-primary btn-sm" id="btnDispCorreo"><span style="width:14px;height:14px;display:inline-flex">${ICONS.mail}</span>Compartir por correo</button>
-      </div>
+
+    <div class="card fade-up" style="padding:12px 16px;display:flex;gap:8px;align-items:center;margin-bottom:18px;width:fit-content;">
+      <button class="btn btn-ghost btn-sm" id="btnDispSemAnterior" title="Semana anterior" style="padding:2px 8px;font-weight:800;">‹</button>
+      <span style="width:17px;height:17px;color:var(--accent);display:inline-flex">${ICONS.calendar}</span>
+      <span style="font-size:13.5px;font-weight:600;min-width:210px;text-align:center;">Semana del ${fmtFechaCorta(lunes)} al ${fmtFechaCorta(domingo)}</span>
+      <button class="btn btn-ghost btn-sm" id="btnDispSemSiguiente" title="Semana siguiente" style="padding:2px 8px;font-weight:800;">›</button>
     </div>
-    <div class="card" style="padding:12px 14px;margin-bottom:16px;background:var(--paper-dim);border:none;font-size:12px;color:var(--ink-fade);">
-      Incluye espacios ya confirmados (bloques "Disponible" de Drive, cancelaciones y suspensiones ya registradas). No incluye cancelaciones que todavía no han pasado.
+
+    <div class="fade-up" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+      <button class="btn btn-outline" id="btnDispWhatsapp" style="color:#25D366;border-color:#25D366;"><span style="width:15px;height:15px;display:inline-flex">${ICONS.whatsapp}</span>Compartir por WhatsApp</button>
+      <button class="btn btn-outline" id="btnDispCorreo"><span style="width:15px;height:15px;display:inline-flex">${ICONS.mail}</span>Compartir por correo</button>
     </div>
-    ${totalSlots===0 ? `<div class="card" style="padding:40px;text-align:center;color:var(--ink-fade);">No hay espacios disponibles por cancelaciones ni suspensiones ${esMesActual?'en lo que resta del mes':'en '+mesLabel.toLowerCase()}.</div>` :
-      PROFESORES.map(p=>{
-        const slots = data[p.id]||[];
-        if(!slots.length) return '';
-        return `
-        <div class="card fade-up" style="padding:16px 18px;margin-bottom:14px;">
-          <div style="font-weight:800;font-size:14.5px;margin-bottom:10px;">${p.nombre} <span class="pill pill-teal" style="font-size:10.5px;margin-left:6px;">${slots.length} espacio${slots.length===1?'':'s'}</span></div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            ${slots.map(sl=>`
-              <div class="disp-slot">
-                <div class="disp-slot-info">
-                  <div class="disp-slot-fecha">${fmtFechaCorta(sl.fecha)}</div>
-                  <div class="disp-slot-hora">${sl.hora}${sl.horaFin?'–'+sl.horaFin:''}</div>
-                  <div class="disp-slot-motivo">${sl.motivo}</div>
-                </div>
-              </div>`).join('')}
-          </div>
-        </div>`;
-      }).join('')
-    }
+
+    ${!diasConAlgo.length ? `<div class="card" style="padding:20px;"><div class="section-sub">No hay nada agendado esta semana.</div></div>` : PROFESORES.map(prof=>{
+      const porDia = porProfesor[prof.id] || {};
+      const totalLibres = dias.reduce((a,f)=> a + (porDia[f]||[]).filter(x=>x.libre).length, 0);
+      const totalClases = dias.reduce((a,f)=> a + (porDia[f]||[]).filter(x=>!x.libre).length, 0);
+      return `
+      <div class="card fade-up" style="padding:18px;margin-bottom:18px;">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+          <div style="font-weight:800;font-size:16px;">${prof.nombre}</div>
+          <span class="pill pill-teal" style="font-size:10.5px;">${totalClases} clase${totalClases===1?'':'s'}</span>
+          <span class="pill" style="font-size:10.5px;background:#dcfce7;color:#166534;">${totalLibres} espacio${totalLibres===1?'':'s'} libre${totalLibres===1?'':'s'}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;">
+          ${diasConAlgo.map(f=>{
+            const slots = porDia[f] || [];
+            const esHoy = f===hoy;
+            return `
+            <div style="border:1.5px solid ${esHoy?'var(--accent)':'var(--line)'};border-radius:10px;overflow:hidden;">
+              <div style="padding:7px 10px;background:${esHoy?'var(--accent)':'var(--paper-dim)'};color:${esHoy?'#fff':'var(--ink)'};font-weight:700;font-size:12px;">
+                ${NOMBRES_DIA[weekdayIdxFromISO(f)]} ${fmtFechaCorta(f)}${esHoy?' · hoy':''}
+              </div>
+              ${!slots.length ? `<div style="padding:10px;font-size:11.5px;color:var(--ink-fade);">Sin nada agendado</div>` : slots.map((sl,i)=>`
+                <div style="padding:8px 10px;${i?'border-top:1px solid var(--line);':''}${sl.libre?'background:#f0fdf4;':''}">
+                  <div style="font-size:11.5px;font-weight:700;color:${sl.libre?'#166534':'var(--ink)'};">${sl.hora}–${sl.horaFin}</div>
+                  <div style="font-size:12px;font-weight:${sl.libre?'700':'600'};color:${sl.libre?'#166534':'var(--ink)'};margin-top:1px;">${sl.libre?'✓ LIBRE':escaparHtml_(sl.texto)}</div>
+                  ${!sl.libre && sl.tipo ? `<div style="font-size:10.5px;color:var(--ink-fade);margin-top:1px;">${escaparHtml_(String(sl.tipo).replace('Entrenamiento ',''))}</div>` : ''}
+                  ${sl.libre && sl.motivo ? `<div style="font-size:10px;color:#15803d;margin-top:1px;">${escaparHtml_(sl.motivo)}</div>` : ''}
+                </div>`).join('')}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }).join('')}
   `;
-  document.getElementById('btnDispWhatsapp').addEventListener('click', ()=>shareDisponibilidad_('whatsapp', data, inicio, fin));
-  document.getElementById('btnDispCorreo').addEventListener('click', ()=>shareDisponibilidad_('correo', data, inicio, fin));
-  if(puedeRetroceder){
-    document.getElementById('btnDispMesAnterior').addEventListener('click', ()=>{
-      STATE.disponibilidadMes = mesAnterior_(STATE.disponibilidadMes);
-      renderDisponibilidad();
-    });
-  }
-  document.getElementById('btnDispMesSiguiente').addEventListener('click', ()=>{
-    STATE.disponibilidadMes = mesSiguiente_(STATE.disponibilidadMes);
+
+  document.getElementById('btnDispSemAnterior').addEventListener('click', ()=>{
+    STATE.disponibilidadSemana = sumarDias_(lunes, -7);
     renderDisponibilidad();
   });
+  document.getElementById('btnDispSemSiguiente').addEventListener('click', ()=>{
+    STATE.disponibilidadSemana = sumarDias_(lunes, 7);
+    renderDisponibilidad();
+  });
+  document.getElementById('btnDispWhatsapp').addEventListener('click', ()=>shareDisponibilidad_('whatsapp', porProfesor, lunes, domingo, dias));
+  document.getElementById('btnDispCorreo').addEventListener('click', ()=>shareDisponibilidad_('correo', porProfesor, lunes, domingo, dias));
 }
 
 /* ===================== MODULO 2: REGISTRO DE SESIONES ===================== */
