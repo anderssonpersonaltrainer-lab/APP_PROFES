@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-23.1">
+<meta name="app-version" content="2026-08-23.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -453,7 +453,9 @@ tr:last-child td{border-bottom:none;}
     <header class="topbar">
       <div>
         <h1 id="topbarTitle">Horario</h1>
-        <div class="section-sub" id="topbarSub">Tu programación de la semana</div>
+        <!-- 23/08/2026: nace oculto y vacio. Antes traia un texto fijo que alcanzaba a verse un
+             instante al entrar, antes de que el codigo lo ocultara (ver switchModule). -->
+        <div class="section-sub" id="topbarSub" style="display:none;"></div>
       </div>
       <div class="topbar-actions">
         <div id="adminModeToggle" class="role-toggle role-toggle-wrap" style="width:auto;padding:3px;background:var(--paper-dim);display:none;"></div>
@@ -3185,7 +3187,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-23.1) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-23.2) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -3298,9 +3300,15 @@ function switchModule(id, opts){
   document.querySelectorAll('.module').forEach(m=>m.classList.remove('active'));
   document.getElementById('mod-'+id).classList.add('active');
   document.querySelectorAll('.nav-item[data-mod]').forEach(b=>b.classList.toggle('active', b.dataset.mod===id));
+  // 23/08/2026 — pedido de Andersson: quitar el texto explicativo bajo el titulo en TODOS los
+  // paneles, porque en celular roba espacio util y ya no aporta (el usuario conoce la app de sobra).
+  // Se OCULTA en vez de borrar los textos: `modTitles` los conserva por si algun dia se quieren
+  // de vuelta, y basta con quitar estas dos lineas para que reaparezcan.
   const t = modTitles(id);
   document.getElementById('topbarTitle').textContent = t.t;
-  document.getElementById('topbarSub').textContent = t.s;
+  const sub = document.getElementById('topbarSub');
+  sub.textContent = '';
+  sub.style.display = 'none';
   if(id==='horario') renderHorario();
   if(id==='registro') renderRegistro();
   if(id==='suspensiones') renderSuspensiones();
