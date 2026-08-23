@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-23.4">
+<meta name="app-version" content="2026-08-23.5">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -361,6 +361,11 @@ main{flex:1;padding:24px 28px 100px;max-width:1180px;width:100%;}
 .modal-close{width:34px;height:34px;border-radius:50%;background:var(--paper-dim);display:flex;align-items:center;justify-content:center;}
 .modal-body{padding:18px 24px 24px;}
 .modal-foot{padding:0 24px 24px;display:flex;gap:10px;justify-content:flex-end;}
+/* 23/08/2026 — la Anamnesis puede tener 2.000+ caracteres y se comia toda la ficha del cliente en
+   celular (Andersson mando la captura). Se muestra plegada a 5 lineas con un boton "Ver mas"; el
+   texto completo sigue estando, y el PDF descargable no cambia. Se bajo el grosor de la letra
+   (antes 600, negrilla) porque en un texto clinico largo cansa la vista y se lee como un muro. */
+.anamnesis-plegado{display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;}
 
 table{width:100%;border-collapse:collapse;}
 th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-fade);padding:10px 12px;border-bottom:1.5px solid var(--line);}
@@ -433,6 +438,13 @@ tr:last-child td{border-bottom:none;}
   .bottom-nav .nav-item.active{background:transparent;color:var(--accent);box-shadow:none;}
   .bottom-nav .nav-item svg{width:21px;height:21px;}
   .field-row{grid-template-columns:1fr 1fr;}
+  /* 23/08/2026 — el final de las ventanas quedaba TAPADO por la barra de abajo (Andersson mando una
+     captura de la ficha de un cliente donde el ultimo renglon de la Anamnesis se leia detras de
+     "Clientes"). La barra esta fija encima de todo, asi que la ventana necesita dejarle ese espacio:
+     se reduce su alto maximo y se le agrega relleno inferior del tamano de la barra. Aplica a TODAS
+     las ventanas de la app, no solo a la ficha del cliente. */
+  .modal{max-height:calc(100vh - 150px);}
+  .modal-body{padding-bottom:calc(24px + 72px + env(safe-area-inset-bottom));}
 }
 @media (max-width:520px){
   .field-row{grid-template-columns:1fr;}
@@ -3192,7 +3204,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-23.4) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-23.5) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -7375,6 +7387,23 @@ function textoAnamnesisFicha_(c){
 // segundos y corre en segundo plano. Así el texto aparece siempre, y además queda siempre al día:
 // si alguien corrige la Anamnesis en Drive, se ve al volver a abrir la ficha. Mantiene intacta la
 // regla de seguridad de anamnesisPerteneceACliente (nunca aplicar el texto de otra persona).
+// 23/08/2026 — decide si hace falta el boton "Ver mas" y en que estado queda. Se llama DOS veces:
+// al pintar la ficha, y otra vez cuando llega la Anamnesis de Drive (que tarda ~2 s). Sin esa
+// segunda llamada el boton se evaluaba contra el texto "Cargando la Anamnesis..." —corto, cabe
+// entero— y quedaba escondido para siempre, aunque despues llegara un texto de 2.000 caracteres.
+function ajustarVerMasAnamnesis_(){
+  const texto = document.getElementById('anamnesisTextoFicha');
+  const btn = document.getElementById('btnVerMasAnamnesis');
+  if(!texto || !btn) return;
+  const plegado = texto.classList.contains('anamnesis-plegado');
+  // Para medir si el texto sobra hay que compararlo SIN plegar; se pliega de nuevo enseguida.
+  if(plegado) texto.classList.remove('anamnesis-plegado');
+  const alturaCompleta = texto.scrollHeight;
+  if(plegado) texto.classList.add('anamnesis-plegado');
+  const sobra = alturaCompleta > texto.clientHeight + 2;
+  btn.style.display = sobra ? '' : 'none';
+  if(sobra && plegado) btn.textContent = 'Ver más';
+}
 async function refrescarAnamnesisFicha_(c){
   const destino = () => document.getElementById('anamnesisTextoFicha');
   if(!c || !c.drive || !gasConfigured()) return;
@@ -7406,7 +7435,7 @@ async function refrescarAnamnesisFicha_(c){
     console.warn('No se pudo refrescar la Anamnesis de', c.nombre, e);
   }
   const el = destino();
-  if(el) el.innerHTML = escaparHtml_(textoAnamnesisFicha_(c));
+  if(el){ el.innerHTML = escaparHtml_(textoAnamnesisFicha_(c)); ajustarVerMasAnamnesis_(); }
 }
 
 function openClienteModal(id){
@@ -7448,7 +7477,8 @@ function openClienteModal(id){
           <span style="width:16px;height:16px;margin-top:2px;color:var(--danger);display:inline-flex">${ICONS.heart}</span>
           <div style="flex:1;">
             <div style="font-size:11.5px;color:var(--ink-fade);">Diagnóstico completo (Anamnesis)</div>
-            <div id="anamnesisTextoFicha" style="font-size:13.5px;font-weight:600;line-height:1.5;white-space:pre-wrap;">${escaparHtml_(textoAnamnesisFicha_(c))}</div>
+            <div id="anamnesisTextoFicha" class="anamnesis-plegado" style="font-size:13.5px;font-weight:500;line-height:1.6;white-space:pre-wrap;">${escaparHtml_(textoAnamnesisFicha_(c))}</div>
+            <button class="btn btn-ghost btn-sm" id="btnVerMasAnamnesis" style="margin-top:6px;padding:3px 0;font-size:12px;color:var(--accent-dark);">Ver más</button>
             <button class="btn btn-outline btn-sm" id="btnDescargarAnamnesis" style="margin-top:10px;">
               <span style="width:13px;height:13px;display:inline-flex">${ICONS.download}</span>Descargar PDF (Anamnesis completa)
             </button>
@@ -7500,6 +7530,18 @@ function openClienteModal(id){
     </div>
   `);
   document.getElementById('btnDescargarAnamnesis').addEventListener('click', ()=>downloadAnamnesisPDF(c.id));
+  // 23/08/2026: plegar/desplegar la Anamnesis. El boton se esconde solo si el texto es corto y ya
+  // se ve completo — asi no aparece un "Ver mas" que no hace nada.
+  (function(){
+    const texto = document.getElementById('anamnesisTextoFicha');
+    const btn = document.getElementById('btnVerMasAnamnesis');
+    if(!texto || !btn) return;
+    btn.addEventListener('click', ()=>{
+      const plegado = texto.classList.toggle('anamnesis-plegado');
+      btn.textContent = plegado ? 'Ver más' : 'Ver menos';
+    });
+    ajustarVerMasAnamnesis_();
+  })();
   refrescarAnamnesisFicha_(c);
 }
 
