@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-23.2">
+<meta name="app-version" content="2026-08-23.3">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3187,7 +3187,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-23.2) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-23.3) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -4587,11 +4587,6 @@ function renderSuspensiones(){
   const sorted = [...list].sort((a,b)=> b.fechaInicio.localeCompare(a.fechaInicio));
 
   el.innerHTML = `
-    <div class="card fade-up" style="padding:16px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;background:var(--teal-light);border:none;">
-      <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.pause}</span>
-      <div style="font-size:12.5px;color:var(--teal-dark);line-height:1.6;">
-        Registra aquí cuando un cliente no va a tomar clases por un periodo (vacaciones, enfermedad u otro motivo). Todas sus clases dentro de ese rango de fechas quedan automáticamente como "Espacio disponible" en el horario — sin contar contra su cupo mensual de cancelaciones.
-      </div>
     </div>
     <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
       <button class="btn btn-dark btn-sm" id="btnNuevaSuspension"><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Nueva suspensión</button>
@@ -4944,12 +4939,6 @@ function renderDisponibilidad(){
   const diasConAlgo = dias.filter(f=> PROFESORES.some(p=> (porProfesor[p.id][f]||[]).length));
 
   el.innerHTML = `
-    <div class="card fade-up" style="padding:16px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;background:var(--teal-light);border:none;">
-      <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.calendar}</span>
-      <div style="font-size:13px;color:var(--teal-dark);line-height:1.6;">
-        La semana completa de cada profesor: sus clases agendadas y los espacios libres, en orden.
-        Los espacios libres incluyen los que se liberan por <strong>cancelaciones</strong> y <strong>suspensiones</strong>.
-      </div>
     </div>
 
     <div class="card fade-up" style="padding:12px 16px;display:flex;gap:8px;align-items:center;margin-bottom:18px;width:fit-content;">
@@ -6945,11 +6934,6 @@ function renderDocs(){
     const estadoDe = (profesorId, tipo) => enviosDelMes.find(d=>d.profesorId===profesorId && d.tipo===tipo);
 
     el.innerHTML = `
-      <div class="card fade-up" style="padding:16px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;background:var(--teal-light);border:none;">
-        <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.mail}</span>
-        <div style="font-size:12.5px;color:var(--teal-dark);line-height:1.6;">
-          Aquí solo confirmas qué documentos ya subió cada profesor este mes y cuáles hacen falta. La carga de archivos la hace cada profesor desde su propia sesión.
-        </div>
       </div>
       <h3 style="font-size:15px;font-weight:800;margin-bottom:10px;">Estado del mes por profesor</h3>
       <div class="card fade-up" style="padding:6px;margin-bottom:26px;">
@@ -6993,11 +6977,6 @@ function renderDocs(){
   }
 
   el.innerHTML = `
-    <div class="card fade-up" style="padding:16px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;background:var(--teal-light);border:none;">
-      <span style="width:18px;height:18px;color:var(--teal-dark);flex-shrink:0;margin-top:2px;display:inline-flex">${ICONS.mail}</span>
-      <div style="font-size:12.5px;color:var(--teal-dark);line-height:1.6;">
-        Los documentos se envían automáticamente desde tu correo registrado a <b>anderssonpersonaltrainer@gmail.com</b> apenas los subes — no tienes que esperar a tener los tres listos, cada uno se envía por separado en el momento en que lo tengas.
-      </div>
     </div>
     <div class="fade-up" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:26px;">
       ${DOC_TIPOS.map((d,i)=>{
