@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-23.3">
+<meta name="app-version" content="2026-08-23.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3099,11 +3099,16 @@ function renderLogin(){
 const NAV_ITEMS = [
   {id:'horario', label:'Horario', icon:ICONS.calendar, roles:['profesor','admin']},
   {id:'registro', label:'Sesiones', icon:ICONS.clipboard, roles:['profesor','admin']},
-  {id:'suspensiones', label:'Suspensiones', icon:ICONS.pause, roles:['profesor','admin']},
-  {id:'docs', label:'Documentación', icon:ICONS.upload, roles:['profesor','admin']},
+  {id:'suspensiones', label:'Suspensiones', corto:'Pausas', icon:ICONS.pause, roles:['profesor','admin']},
+  {id:'docs', label:'Documentación', corto:'Documentos', icon:ICONS.upload, roles:['profesor','admin']},
   {id:'clientes', label:'Clientes', icon:ICONS.users, roles:['profesor','admin']},
-  {id:'disponibilidad', label:'Disponibilidad', icon:ICONS.chart, roles:['admin']},
+  {id:'disponibilidad', label:'Disponibilidad', corto:'Disponible', icon:ICONS.chart, roles:['admin']},
 ];
+// 23/08/2026 — `corto` es el nombre para la BARRA DE ABAJO del celular, donde las seis opciones se
+// reparten el ancho de la pantalla y un texto largo se corta a media palabra (Andersson mando una
+// captura con "Disponi..."). En la barra lateral del computador se sigue usando el nombre completo,
+// que ahi si cabe. Si un item no define `corto`, se usa su `label` de siempre.
+function navLabelCorto_(n){ return n.corto || n.label; }
 function modTitles(id){
   const overview = isAdminOverview();
   const titles = {
@@ -3137,7 +3142,7 @@ function bootApp(startModule){
     </div>
     <button class="logout-btn" id="btnLogout"><span style="width:17px;height:17px;display:inline-flex">${ICONS.logout}</span>Cerrar sesión</button>
   `;
-  document.getElementById('bottomNav').innerHTML = items.map(n=>`<button class="nav-item" data-mod="${n.id}"><span style="width:21px;height:21px;display:inline-flex">${n.icon}</span>${n.label}</button>`).join('');
+  document.getElementById('bottomNav').innerHTML = items.map(n=>`<button class="nav-item" data-mod="${n.id}"><span style="width:21px;height:21px;display:inline-flex">${n.icon}</span>${navLabelCorto_(n)}</button>`).join('');
 
   // Botón de cuenta del topbar + panel "Mi cuenta" (visible también en celular — ver nota de
   // #btnAccount en el CSS). Muestra los mismos datos que .sidebar-user y el mismo botón de cerrar
@@ -3187,7 +3192,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-23.3) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-23.4) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -3679,7 +3684,11 @@ function renderHorario(){
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnActualizarHorario"><span style="width:14px;height:14px;display:inline-flex">${ICONS.sync}</span>Actualizar horario</button>` : ''}
-        ${isAdmin ? `<button class="btn btn-outline btn-sm" id="btnReenviarCambios" title="Vuelve a subir al servidor todos los clientes programados/reasignaciones/masajes de este dispositivo — útil si alguno no se compartió con los demás"><span style="width:14px;height:14px;display:inline-flex">${ICONS.sync}</span>Reenviar cambios a todos</button>` : ''}
+        <!-- 23/08/2026: se quito "Reenviar cambios a todos". El reenvio automatico ya corre al abrir
+        la app y cada 2 minutos, y desde el 22/08 ESPERA a que lleguen los datos del servidor antes de
+        decidir que subir. Este boton manual llamaba a reenviarCambiosLocalesAlServidor_ directamente,
+        SIN esa espera: era el unico camino que quedaba con la carrera que causaba que un cambio ya
+        borrado resucitara. Redundante y ademas el mas riesgoso. -->
         ${overview ? `<button class="btn btn-primary btn-sm" id="btnProgramarCliente" onclick="openProgramarSlotModal()"><span style="width:14px;height:14px;display:inline-flex">${ICONS.plus}</span>Programar cliente</button>` : ''}
         ${overview ? `
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -3764,26 +3773,6 @@ function renderHorario(){
         btn.innerHTML = textoOriginal;
         const motivos = {'sin-configurar':'la sincronización con Drive todavía no está configurada.', 'sin-respuesta':'no se pudo contactar a Drive (revisa tu conexión).', 'muy-pocas-sesiones':'el horario leído de Drive parecía incompleto, así que no se reemplazó el actual.', 'excepcion':'ocurrió un error inesperado.'};
         toast('No se pudo actualizar el horario: ' + (motivos[resultado && resultado.motivo] || 'intenta de nuevo en un momento.'), 'error');
-      }
-    });
-    document.getElementById('btnReenviarCambios').addEventListener('click', async function(){
-      const btn = this;
-      const textoOriginal = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = 'Reenviando…';
-      const resultado = await reenviarCambiosLocalesAlServidor_();
-      btn.disabled = false;
-      btn.innerHTML = textoOriginal;
-      if(!resultado || !resultado.ok){
-        toast('No se pudo reenviar: la sincronización con Drive todavía no está configurada.', 'error');
-      } else if(resultado.total===0){
-        toast('No hay cambios locales pendientes por reenviar en este dispositivo.', 'success');
-      } else if(resultado.enviados===0){
-        toast(`No se pudo reenviar ninguno de los ${resultado.total} cambio(s) — revisa tu conexión a internet e inténtalo de nuevo.`, 'error');
-      } else if(resultado.enviados < resultado.total){
-        toast(`Solo se reenviaron ${resultado.enviados} de ${resultado.total} cambio(s) — revisa tu conexión e inténtalo de nuevo para completar el resto.`, 'error');
-      } else {
-        toast(`${resultado.enviados} de ${resultado.total} cambio(s) reenviado(s) al servidor — ya deberían verse en los demás dispositivos.`, 'success');
       }
     });
   }
