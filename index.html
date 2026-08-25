@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-23.5">
+<meta name="app-version" content="2026-08-24.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -3204,7 +3204,7 @@ function bootApp(startModule){
   // plantilla no cambio, el dispositivo se queda mostrando el resultado VIEJO, calculado con el
   // codigo que tenia el error. Paso dos veces seguidas: primero con la clase fantasma que Karen
   // seguia viendo (v2026-08-19.2), y despues con la hora 06:00 que quedo grabada en la fila aunque
-  // Drive dijera 06:30 (v2026-08-23.5) — el arreglo era correcto pero llegaba tarde al dato ya
+  // Drive dijera 06:30 (v2026-08-24.1) — el arreglo era correcto pero llegaba tarde al dato ya
   // guardado. En vez de acordarse de poner una marca nueva en cada version (que es justo lo que
   // fallo), se compara la version de la app: si cambio desde la ultima vez, se olvida la version
   // conocida de la plantilla, lo que fuerza a reconstruir el horario desde cero una sola vez.
@@ -4267,8 +4267,9 @@ function openProgramarSlotModal(espacio){
           <input type="time" id="pHoraInicio" required ${!libre?`value="${espacio.boundsInicio}"`:''}>
         </div>
         <div class="field">
-          <label>Hora fin <span class="req">*</span></label>
-          <input type="time" id="pHoraFin" required ${!libre?`value="${espacio.boundsFin}"`:''}>
+          <label>Hora fin</label>
+          <input type="time" id="pHoraFin" disabled>
+          <small>Se calcula sola: toda sesión dura una hora.</small>
         </div>
         <div class="field">
           <label>Tipo de sesión <span class="req">*</span></label>
@@ -4296,6 +4297,17 @@ function openProgramarSlotModal(espacio){
       <button class="btn btn-primary" id="btnConfirmProgramar">Programar</button>
     </div>
   `);
+  // 24/08/2026: la hora de fin se muestra sola (una hora despues del inicio) y no se puede editar.
+  // Se actualiza al escribir la hora de inicio, para que se vea de una como queda la sesion.
+  (function(){
+    const ini = document.getElementById('pHoraInicio');
+    const fin = document.getElementById('pHoraFin');
+    if(!ini || !fin) return;
+    const refrescar = ()=>{ fin.value = ini.value ? calcHoraFin(ini.value, 60) : ''; };
+    ini.addEventListener('input', refrescar);
+    ini.addEventListener('change', refrescar);
+    refrescar();
+  })();
   document.getElementById('pModalidad').addEventListener('change', e=>{
     const lugarInput = document.getElementById('pLugar');
     if(!lugarInput.dataset.editadoManual){
@@ -4357,8 +4369,12 @@ function openProgramarSlotModal(espacio){
     const clienteId = document.getElementById('pCliente').value;
     const profesorId = document.getElementById('pProfesor').value;
     const horaInicio = document.getElementById('pHoraInicio').value;
-    const horaFin = document.getElementById('pHoraFin').value;
-    if(horaFin<=horaInicio){ toast('La hora de fin debe ser después de la hora de inicio.', 'error'); return; }
+    // 24/08/2026 — BUG REAL: el campo "Hora fin" se llenaba con el FINAL DEL BLOQUE LIBRE completo
+    // (`value="${espacio.boundsFin}"`), no con una hora despues del inicio. Andersson programo un
+    // masaje en un hueco de 12:30 a 15:00 y quedo guardado de 12:30-15:00 = 150 minutos.
+    // Verificado contra sus datos reales: las 71 clases del Excel duran EXACTAMENTE 60 minutos, sin
+    // una sola excepcion. Asi que la hora de fin no es un dato que haya que pedir: se calcula.
+    const horaFin = calcHoraFin(horaInicio, 60);
     const modalidad = document.getElementById('pModalidad').value;
     let fecha, dia;
     if(libre){
