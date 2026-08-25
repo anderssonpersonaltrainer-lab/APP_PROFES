@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-24.1">
+<meta name="app-version" content="2026-08-24.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -803,6 +803,7 @@ function dateForWeekday(offset){ // 0=lunes .. 5=sábado
 }
 
 function calcHoraFin(hora, minutos){ const [h,m]=hora.split(':').map(Number); const total=h*60+m+minutos; return pad(Math.floor(total/60)%24)+':'+pad(total%60); }
+function minutosEntreHoras_(inicio, fin){ const [h1,m1]=String(inicio||'').split(':').map(Number); const [h2,m2]=String(fin||'').split(':').map(Number); if([h1,m1,h2,m2].some(n=>!Number.isFinite(n))) return 0; return (h2*60+m2)-(h1*60+m1); }
 // 25/07/2026: este array ahora es la PLANTILLA semanal (un renglón por horario recurrente —
 // profesor+día+hora — sin fecha específica, igual que como viene del Excel de Drive), no la lista
 // de clases de una semana puntual. Se renombró de "SCHEDULE" a "SCHEDULE_TEMPLATE" porque ahora
@@ -1429,7 +1430,16 @@ function buildScheduleFromGridData(data){
           // sin hora de fin — se guarda aquí para que, más abajo, las filas "Disponible" seguidas del
           // mismo profesor/día se puedan unir en un solo bloque continuo (ver nota junto a
           // `disponiblesUnidos`).
-          nuevo.push({id:idBase, profesorId:tab.profesorId, dia:diaIdx, hora:extraerHoraDeTexto(texto, bloque.inicio), horaFin:bloque.fin, tipo:'Disponible', estado:'pendiente'});
+          // 24/08/2026 — bug real reportado por Andersson: Karen aparecia disponible hasta las 15:00
+          // cuando su dia termina a las 14:00. Causa: se tomaba el INICIO del texto de la celda
+          // ("Disponible a las 13") pero el FIN de la FILA donde esta escrita (la fila "2:00 PM - 3:00
+          // PM"), asi que el bloque salia una hora mas largo de lo que la celda representa. Una celda
+          // dura lo que dura su fila: si el texto corre el inicio, el fin se corre exactamente igual.
+          // (La extension hasta la siguiente ocupacion real del 03/08 se sigue aplicando despues, sin
+          // cambios — ver la nota junto a `ocupacionesPorProfesorDia_`.)
+          const horaCelda = extraerHoraDeTexto(texto, bloque.inicio);
+          const finCelda = horaCelda===bloque.inicio ? bloque.fin : calcHoraFin(horaCelda, Math.max(0, minutosEntreHoras_(bloque.inicio, bloque.fin)));
+          nuevo.push({id:idBase, profesorId:tab.profesorId, dia:diaIdx, hora:horaCelda, horaFin:finCelda, tipo:'Disponible', estado:'pendiente'});
           return;
         }
         if(tLower.includes('almuerzo')){
