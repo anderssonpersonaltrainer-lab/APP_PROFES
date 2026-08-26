@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-25.2">
+<meta name="app-version" content="2026-08-26.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -1790,8 +1790,27 @@ function _horaObjetivoDeOverride_(o){
   // la plantilla que hay que encontrar para moverla.
   return (o.horarioOriginal && o.horarioOriginal.hora) || o.hora || '';
 }
+// 26/08/2026 — BUG REAL reportado por Andersson: reprogramó la clase de Susan Suarez (jueves 8:30 a
+// viernes 4:00 pm) y el cambio se guardó bien en el servidor (con notificación y todo), pero nunca
+// se reflejó en el horario de NADIE: el jueves seguía mostrando la clase sin tocar, y el viernes no
+// aparecía nada. Causa: `_buscarFilaParaOverride_` (ver abajo) buscaba la fila a mover por
+// `o.fecha` — pero en una reprogramación `fecha` ya es la fecha NUEVA (viernes), y la fila que hay
+// que encontrar y mover es la de la plantilla, que solo existe bajo la fecha ORIGINAL (jueves, la
+// plantilla nunca genera un viernes para Susan). La búsqueda nunca encontraba nada, y como el id
+// empieza con `dr` (fila de plantilla), la regla de seguridad de más abajo — nunca inventar una fila
+// nueva para un cambio sobre la plantilla — hacía que el cambio se descartara en silencio. Mismo
+// criterio que ya usa `_horaObjetivoDeOverride_` arriba: la identidad de la fila a mover es siempre
+// la del horario ORIGINAL, nunca la nueva.
+function _fechaObjetivoDeOverride_(o){
+  return (o.horarioOriginal && o.horarioOriginal.fecha) || o.fecha || '';
+}
 function _identidadDeOverride_(o){
-  return [o.clienteId||'', o.fecha||'', _horaObjetivoDeOverride_(o),
+  // 26/08/2026: usaba `o.fecha` (la fecha NUEVA en una reprogramación) mezclada con la hora
+  // ORIGINAL — dos cambios sucesivos sobre la MISMA clase original (ej. reprogramada dos veces, cada
+  // vez a una fecha nueva distinta) quedaban con identidades distintas y no se reconocían como la
+  // misma cita, así que ninguno descartaba al otro. La identidad de una clase es siempre la de su
+  // horario ORIGINAL — igual criterio que ya usan `_horaObjetivoDeOverride_`/`_fechaObjetivoDeOverride_`.
+  return [o.clienteId||'', _fechaObjetivoDeOverride_(o), _horaObjetivoDeOverride_(o),
           (o.horarioOriginal && o.horarioOriginal.profesorId) || o.profesorId || ''].join('|');
 }
 function _fechaDeCambioDeOverride_(o){ return String(o._updatedAt || o.fechaHoraCancelacion || ''); }
@@ -1818,7 +1837,7 @@ function _dedupeOverridesPorIdentidad_(lista){
 // cliente, nunca como fuente de verdad.
 function _buscarFilaParaOverride_(o){
   if(!o.clienteId) return SCHEDULE.find(x=>x.id===o.id) || null;
-  const candidatas = SCHEDULE.filter(x=> x.fecha===o.fecha && x.clienteId===o.clienteId);
+  const candidatas = SCHEDULE.filter(x=> x.fecha===_fechaObjetivoDeOverride_(o) && x.clienteId===o.clienteId);
   if(!candidatas.length) return null;
   const horaObj = _horaObjetivoDeOverride_(o);
   return candidatas.find(x=>x.id===o.id)
@@ -1832,7 +1851,15 @@ function _overrideEsDePlantilla_(o){ return /^dr\d+_/.test(String(o.id||'')); }
 
 function applyScheduleOverridesToMonth_(year, monthIdx0){
   const mesStr = `${year}-${pad(monthIdx0+1)}`;
-  const delMes = SCHEDULE_OVERRIDES.filter(o=> o && o.fecha && String(o.fecha).startsWith(mesStr));
+  // 26/08/2026: se incluye un cambio en el paso de un mes si su fecha NUEVA cae en ese mes (para
+  // colocar la clase ahí) O si su fecha ORIGINAL cae en ese mes (para quitarla de ahí) — antes solo
+  // se miraba la fecha nueva, así que una reprogramación que cruza de un mes a otro (ej. 30 de
+  // agosto a 2 de septiembre) nunca se procesaba al ver agosto, y esa clase seguía apareciendo ahí
+  // sin tocar hasta que alguien entrara también a septiembre.
+  const delMes = SCHEDULE_OVERRIDES.filter(o=> o && (
+    (o.fecha && String(o.fecha).startsWith(mesStr)) ||
+    (o.horarioOriginal && o.horarioOriginal.fecha && String(o.horarioOriginal.fecha).startsWith(mesStr))
+  ));
   const noUbicados = [];
   // Se aplican en orden CRONOLOGICO (del cambio mas viejo al mas nuevo), no en el orden en que la
   // hoja devuelva las filas. Asi, cuando dos cambios distintos terminan cayendo sobre la misma
