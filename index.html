@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-24.2">
+<meta name="app-version" content="2026-08-25.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -695,7 +695,11 @@ Aunque la usuaria manifiesta no tener enfermedades, refiere tomar cardiomax, el 
   // 30/07/2026: Andersson confirmó que Marisol (mamá de Leo) y Leo actualmente NO están tomando
   // sesiones con nosotros — igual que Juanita Cuéllar y Gloria Torres (c23, ver nota junto a ese
   // registro), se dejan como un solo cliente combinado sin separar, ya que no es un caso activo hoy.
-  {id:'c34', nombre:'Marisol y Leo', cc:'Marisol: 52.084.105 · Leo: CE 2.032.156', edad:'Pendiente', direccion:'Carrera 1B #54-45, Apto 402, Bogotá', telefono:'Marisol 316 342 5654 / Leo 315 001 4312', diagnostico:NO_ANAMNESIS, tarifa:55700, tarifaOnline:null, tarifaSemiPresencial:27850, tarifaSemiOnline:null, tarifaMasaje:130000, cancelSobreTiempo:55700, cancelDelDia:27850, cancelNochePrevia:13925, cancelSemiSobreTiempo:27850, cancelSemiDelDia:13925, cancelSemiNochePrevia:6963, activo:false, drive:'1ssSuDsmdhdDsMJxskf4l80jbv4XYWLxa'},
+  // 25/08/2026: pedido explícito de Andersson — Marisol y Leo dejan de facturar como una sola
+  // cuenta combinada y pasan al mismo modelo que Jineth/Santiago: dos clientes aparte, cada uno con
+  // su propia cuenta de cobro. Marisol Cabrera queda como titular del horario (conserva el id 'c34'
+  // de siempre); Leo Acard es cliente nuevo, ver 'c46' más abajo — comparten la misma carpeta de Drive.
+  {id:'c34', nombre:'Marisol Cabrera', cc:'52.084.105', edad:'Pendiente', direccion:'Carrera 1B #54-45, Apto 402, Bogotá', telefono:'316 342 5654', diagnostico:'Entrena junto con su hijo Leo Acard (cliente aparte "c46", misma dirección) — sesión conjunta, cada uno con su propio registro de salud y su propia cuenta de cobro (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos).', tarifa:55700, tarifaOnline:null, tarifaSemiPresencial:27850, tarifaSemiOnline:null, tarifaMasaje:130000, cancelSobreTiempo:55700, cancelDelDia:27850, cancelNochePrevia:13925, cancelSemiSobreTiempo:27850, cancelSemiDelDia:13925, cancelSemiNochePrevia:6963, activo:true, drive:'1ssSuDsmdhdDsMJxskf4l80jbv4XYWLxa'},
   {id:'c35', nombre:'Marisol Dalmazzo', cc:'CE 169.367', edad:74, direccion:'Pendiente', telefono:'Pendiente', diagnostico:'Cáncer con compromiso óseo (clavícula, columna, húmero) e hígado, quimioterapia trisemanal, hipotensión ortostática severa, fractura de fémur derecho (2016, con implante de platino). Crisis grave por infección urinaria (dic. 2025, cuidados paliativos, en recuperación).', tarifa:58000, tarifaOnline:55200, tarifaSemiPresencial:29000, tarifaSemiOnline:27600, tarifaMasaje:130000, cancelSobreTiempo:58000, cancelDelDia:29000, cancelNochePrevia:14500, cancelSemiSobreTiempo:29000, cancelSemiDelDia:14500, cancelSemiNochePrevia:7250, activo:true, drive:'1dyaEepezKs-tNF39tURcXEqRrpxc8fDu', anamnesisCompleta:`Marisol Beatriz Dalmazzo Peillard tiene 74 años (al 2023), nació el 2-08-1949. Usuaria con cáncer. Tipo y número de identificación CE 169367. Al 2023 recibe quimioterapia cada 3 semanas. Como resultado del examen de mesa basculante se encuentran bajas repentinas y extremas de presión, razón por la cual le autorizan terapias para el fortalecimiento del sistema cardiovascular. El cáncer ha comprometido diferentes estructuras óseas como la clavícula, la columna y el húmero, y en cuanto a órganos internos, el hígado. Consume creatina. En el 2016 presentó fractura en el fémur derecho, por lo cual fue operada y le pusieron implante de platino.
 
 15-01-2026. Durante diciembre del 2025 Marisol tuvo una grave crisis de salud, producto de una infección urinaria que la llevó incluso a tener cuidados paliativos en casa. En determinado momento sus médicos creyeron que no sobreviviría. No obstante, repentinamente Marisol empezó a mostrar signos de mejoría e incluso ya fue retirada la sonda vesical.
@@ -733,6 +737,11 @@ Entendiendo que la usuaria entrenará solo dos días, estos seguidos, se sugiere
   // (misma razón que con Camila/Jorge arriba). 30/07/2026: tiene su propia cuenta de cobro
   // independiente (se retiró `facturarBajoClienteId`, ver MODALIDADES_SESION).
   {id:'c45', nombre:'Santiago Agreda', cc:'1.018.433.116', edad:'Pendiente', direccion:'Transversal 1 #58-55, Apto 703, Bogotá', telefono:'304 647 1264', diagnostico:'Entrena junto con su pareja Jineth Prieto (cliente aparte "c19", misma dirección) — cada uno con su propia cuenta de cobro (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos, ver MODALIDADES_SESION).', tarifa:60400, tarifaOnline:null, tarifaSemiPresencial:30200, tarifaSemiOnline:null, tarifaMasaje:130000, cancelSobreTiempo:60400, cancelDelDia:30200, cancelNochePrevia:15100, cancelSemiSobreTiempo:30200, cancelSemiDelDia:15100, cancelSemiNochePrevia:7550, activo:true, drive:'1z5NCHjEISE-3Sxbdfhs-Ex0gHyDakfmS'},
+  // 25/08/2026: cliente nuevo — Leo Acard, hijo de Marisol Cabrera (c34), antes fusionados en un
+  // solo cliente combinado "Marisol Cabrera y Leo Acard". Comparte la carpeta de Drive de Marisol
+  // (misma razón que con Camila/Jorge y Santiago/Jineth arriba). Tiene su propia cuenta de cobro
+  // independiente (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos).
+  {id:'c46', nombre:'Leo Acard', cc:'CE 2.032.156', edad:'Pendiente', direccion:'Carrera 1B #54-45, Apto 402, Bogotá', telefono:'315 001 4312', diagnostico:'Entrena junto con su mamá Marisol Cabrera (cliente aparte "c34", misma dirección) — sesión conjunta, cada uno con su propio registro de salud y su propia cuenta de cobro (modalidad "Entrenamiento semipersonalizado" cuando entrenan juntos).', tarifa:55700, tarifaOnline:null, tarifaSemiPresencial:27850, tarifaSemiOnline:null, tarifaMasaje:130000, cancelSobreTiempo:55700, cancelDelDia:27850, cancelNochePrevia:13925, cancelSemiSobreTiempo:27850, cancelSemiDelDia:13925, cancelSemiNochePrevia:6963, activo:true, drive:'1ssSuDsmdhdDsMJxskf4l80jbv4XYWLxa'},
 ];
 
 // 01/08/2026: reglas de cancelación nuevas, vigentes desde agosto 2026 (documento
@@ -1266,6 +1275,7 @@ const CLIENTE_NAME_ALIASES = {
   'lucia acero':'c28', // Maria Lucia Acero
   'jinneth y santiago':'c19', // alias antiguo (antes de corregir el nombre en Drive) — se conserva por si el Excel vuelve a traer esta variante
   'jineth prieto y santiago agreda':'c19', // 29/07/2026: Andersson corrigió el nombre real en la carpeta de Drive (Anamnesis/horario) a "Jineth Prieto"; Jineth Prieto es la titular de la cuenta de cobro — Santiago Agreda es c45, cliente aparte desde 27/07/2026
+  'marisol cabrera y leo acard':'c34', // 25/08/2026: Marisol Cabrera es la titular del horario (así aparece escrita la celda en Drive) — Leo Acard es c46, cliente aparte desde hoy
   'gladys y susan':'c16', // sesión conjunta Gladys Gutierrez + Susan Suarez — Gladys queda como titular
   // 30/07/2026 (noche): sesión conjunta María Lourdes (c30) + Ricardo Sarmiento (c40). El problema real
   // (ver esAliasCombinado_ más abajo, ya corregido de raíz para que funcione con CUALQUIER pareja, no
