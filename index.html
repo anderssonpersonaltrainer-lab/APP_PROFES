@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-27.4">
+<meta name="app-version" content="2026-08-27.5">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -7174,16 +7174,22 @@ function nombreMes(mesStr){ const [y,m] = mesStr.split('-').map(Number); return 
 // dispositivos vía el Apps Script, tanto sesiones dictadas como cancelaciones — ver openCancelModal
 // y sesionesCompletadasDelMes/cancelacionesDelMes). En REGISTROS, "cancelada" es un valor literal de
 // `estado`; cualquier otro valor (abierto/cerrado) representa una sesión sí dictada.
+// 27/08/2026 (más tarde, mismo día) — pedido explícito de Andersson: un cliente puede tener varias
+// cancelaciones en el mismo mes, de tipos distintos — el total "canceladas" solo no dice cuáles.
+// Se agrega `porTipo` con el mismo desglose que ya usa el panel general del negocio (anticipada/
+// del_dia/noche_previa/sobre_tiempo), para poder ver de cuáles se trata mes a mes.
 function historialMensualCliente(clienteId){
   const anio = anioActual();
   const porMes = {};
   REGISTROS.filter(r=>r.clienteId===clienteId && r.fecha && r.fecha.startsWith(anio)).forEach(r=>{
     const mes = r.fecha.slice(0,7);
-    if(!porMes[mes]) porMes[mes] = {completadas:0, canceladas:0};
-    if(r.estado==='cancelada') porMes[mes].canceladas++;
-    else porMes[mes].completadas++;
+    if(!porMes[mes]) porMes[mes] = {completadas:0, canceladas:0, porTipo:{anticipada:0, del_dia:0, noche_previa:0, sobre_tiempo:0}};
+    if(r.estado==='cancelada'){
+      porMes[mes].canceladas++;
+      if(porMes[mes].porTipo[r.tipoCancelacion]!=null) porMes[mes].porTipo[r.tipoCancelacion]++;
+    } else porMes[mes].completadas++;
   });
-  return porMes; // {'2026-07': {completadas, canceladas}, ...}
+  return porMes; // {'2026-07': {completadas, canceladas, porTipo:{anticipada,del_dia,noche_previa,sobre_tiempo}}, ...}
 }
 
 function promedioAnualCliente(clienteId){
@@ -7359,18 +7365,18 @@ function renderClientes(){
 // — exactamente lo que Andersson reportó. Independiente del mes/histórico seleccionado arriba: esto
 // siempre muestra TODOS los meses con datos, uno por fila.
 // 27/08/2026 (más tarde, mismo día) — pedido explícito de Andersson: además de "anticipada", separar
-// por mes también "del_dia" y "noche_previa" — mismo criterio de siempre (mes real de la clase
-// cancelada, `r.fecha`, nunca la fecha en que se registró la cancelación).
+// por mes también "del_dia", "noche_previa" y "sobre_tiempo" — mismo criterio de siempre (mes real de
+// la clase cancelada, `r.fecha`, nunca la fecha en que se registró la cancelación).
 function desgloseCancelacionesPorMesYTipo_(){
-  const TIPOS = ['anticipada','del_dia','noche_previa'];
+  const TIPOS = ['anticipada','del_dia','noche_previa','sobre_tiempo'];
   const counts = {};
   REGISTROS.filter(r=>r.estado==='cancelada' && TIPOS.includes(r.tipoCancelacion) && r.fecha).forEach(r=>{
     const mes = r.fecha.slice(0,7);
-    if(!counts[mes]) counts[mes] = {anticipada:0, del_dia:0, noche_previa:0};
+    if(!counts[mes]) counts[mes] = {anticipada:0, del_dia:0, noche_previa:0, sobre_tiempo:0};
     counts[mes][r.tipoCancelacion]++;
   });
   return Object.entries(counts)
-    .map(([mes,c])=>({mes, label:nombreMes(mes), ...c, total:c.anticipada+c.del_dia+c.noche_previa}))
+    .map(([mes,c])=>({mes, label:nombreMes(mes), ...c, total:c.anticipada+c.del_dia+c.noche_previa+c.sobre_tiempo}))
     .sort((a,b)=>a.mes.localeCompare(b.mes));
 }
 
@@ -7426,7 +7432,7 @@ function renderAnalitica(){
           <thead><tr style="text-align:left;color:var(--ink-fade);font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;">
             <th style="padding:6px 10px 6px 0;">Profesor</th>
             <th style="padding:6px 10px;">Clases / semana</th>
-            <th style="padding:6px 10px;">Cancelaciones ${verHistorico?'(histórico)':'(mes)'}</th>
+            <th style="padding:6px 10px;white-space:nowrap;">Cancelaciones ${verHistorico?'(histórico)':'(mes)'}</th>
             <th style="padding:6px 10px;">Prom. horas / semana</th>
             <th style="padding:6px 10px;">Valor clases ${verHistorico?'(histórico)':'(mes)'}</th>
             <th style="padding:6px 10px;">Pérdida por cancelaciones ${verHistorico?'(histórico)':'(mes)'}</th>
@@ -7564,10 +7570,11 @@ function renderAnalitica(){
       <div class="table-wrap">
         <table class="mobile-cards" style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="text-align:left;color:var(--ink-fade);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;">
-            <th style="padding:4px 8px 4px 0;">Mes</th>
-            <th style="padding:4px 8px;">Anticipada</th>
-            <th style="padding:4px 8px;">Del día</th>
-            <th style="padding:4px 8px;">Noche previa</th>
+            <th style="padding:4px 8px 4px 0;white-space:nowrap;">Mes</th>
+            <th style="padding:4px 8px;white-space:nowrap;">Anticipada</th>
+            <th style="padding:4px 8px;white-space:nowrap;">Del día</th>
+            <th style="padding:4px 8px;white-space:nowrap;">Noche previa</th>
+            <th style="padding:4px 8px;white-space:nowrap;">Sobre tiempo</th>
           </tr></thead>
           <tbody>
             ${cancelacionesPorMesYTipo.map((r,i)=>`
@@ -7576,12 +7583,13 @@ function renderAnalitica(){
               <td data-label="Anticipada" style="padding:7px 8px;">${r.anticipada}</td>
               <td data-label="Del día" style="padding:7px 8px;">${r.del_dia}</td>
               <td data-label="Noche previa" style="padding:7px 8px;">${r.noche_previa}</td>
+              <td data-label="Sobre tiempo" style="padding:7px 8px;">${r.sobre_tiempo}</td>
             </tr>`).join('')}
           </tbody>
         </table>
       </div>` : `<div class="section-sub" style="padding:10px 0;">Sin cancelaciones de estos tipos registradas.</div>`}
     </div>
-    <div class="card fade-up" style="padding:18px 20px;margin-bottom:20px;max-width:520px;">
+    <div class="card fade-up" style="padding:18px 20px;margin-bottom:20px;">
       <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Historial por cliente</div>
       <div class="section-sub" style="margin-bottom:12px;">Busca un cliente puntual para ver su historial completo, sin abrir su ficha</div>
       <div style="position:relative;max-width:320px;">
@@ -7727,9 +7735,13 @@ function historialClienteHTML_(c){
           <div style="overflow-x:auto;">
             <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
               <thead><tr style="text-align:left;color:var(--ink-fade);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;">
-                <th style="padding:4px 8px 4px 0;">Mes</th>
-                <th style="padding:4px 8px;">Completadas</th>
-                <th style="padding:4px 8px;">Canceladas</th>
+                <th style="padding:4px 8px 4px 0;white-space:nowrap;">Mes</th>
+                <th style="padding:4px 8px;white-space:nowrap;">Completadas</th>
+                <th style="padding:4px 8px;white-space:nowrap;">Canceladas</th>
+                <th style="padding:4px 8px;white-space:nowrap;">Anticipada</th>
+                <th style="padding:4px 8px;white-space:nowrap;">Del día</th>
+                <th style="padding:4px 8px;white-space:nowrap;">Noche previa</th>
+                <th style="padding:4px 8px;white-space:nowrap;">Sobre tiempo</th>
               </tr></thead>
               <tbody>
                 ${mesesOrdenados.map(mes=>`
@@ -7737,6 +7749,10 @@ function historialClienteHTML_(c){
                   <td style="padding:7px 8px 7px 0;font-weight:600;text-transform:capitalize;">${nombreMes(mes)}</td>
                   <td style="padding:7px 8px;color:var(--teal-dark);font-weight:700;">${porMes[mes].completadas}</td>
                   <td style="padding:7px 8px;${porMes[mes].canceladas?'color:var(--danger);font-weight:700;':''}">${porMes[mes].canceladas}</td>
+                  <td style="padding:7px 8px;">${porMes[mes].porTipo.anticipada}</td>
+                  <td style="padding:7px 8px;">${porMes[mes].porTipo.del_dia}</td>
+                  <td style="padding:7px 8px;">${porMes[mes].porTipo.noche_previa}</td>
+                  <td style="padding:7px 8px;">${porMes[mes].porTipo.sobre_tiempo}</td>
                 </tr>`).join('')}
               </tbody>
             </table>
