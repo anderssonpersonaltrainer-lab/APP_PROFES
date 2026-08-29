@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-26.1">
+<meta name="app-version" content="2026-08-27.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -4802,6 +4802,16 @@ function weekdayIdxFromISO(fechaISO){ // 0=lunes..5=sábado, -1=domingo (sin age
   const js = new Date(fechaISO+'T00:00:00').getDay();
   return js===0 ? -1 : js-1;
 }
+// 27/08/2026 — pedido explícito de Andersson, cierre de mes: a cuántas semanas equivale un mes
+// calendario — se usa para promediar horas reales por semana en el "Resumen por profesor" (ver más
+// abajo). Primer intento: contar semanas (lunes a domingo) DISTINTAS que toca el mes — pero eso da
+// 6 para un mes como agosto 2026 (empieza sábado, termina lunes), porque cuenta como semana completa
+// una punta de 1 solo día — diluye el promedio real sin que el profesor haya trabajado menos. En vez
+// de eso: días del mes ÷ 7, el estándar de siempre para "semanas en un mes", que no se distorsiona
+// según en qué día caigan el 1° o el último del mes.
+function semanasEnMes_(year, monthIdx0){
+  return new Date(year, monthIdx0+1, 0).getDate() / 7;
+}
 
 // 25/07/2026: pedido explícito de Andersson — poder revisar la disponibilidad de un mes FUTURO
 // (ej. agosto) desde antes de que empiece, no solo la del mes en curso. Recibe el mes a calcular
@@ -7208,15 +7218,25 @@ function desgloseCancelacionesPorTipo_(registrosCancelados){
     .sort((a,b)=>b.count-a.count);
 }
 
-// Valor real de las clases dictadas por un profesor en un mes, y valor de la pérdida por cancelaciones,
-// usando exactamente las mismas reglas de negocio (precioPorModalidad_) que ya se usan en
-// computeInvoice() para la cuenta de cobro — nunca se inventa ni se aproxima un valor.
+// Valor real de las clases dictadas por un profesor en un mes, y valor de la pérdida por cancelaciones.
+// 27/08/2026 — pedido explícito de Andersson, cierre de mes: "Valor clases" debe salir TOTALIZADO
+// exactamente de la información que la app ya tiene en la cuenta de cobro real de cada cliente, no de
+// un cálculo aparte que reimplementa las mismas reglas por su cuenta y se puede desincronizar con el
+// tiempo si una se actualiza y la otra no (ya pasó una vez con "1h estimada por clase" en este mismo
+// panel). Ahora se llama directamente a computeInvoiceValues() — la MISMA función que genera cada
+// cuenta de cobro real, ver el botón "Generar cuenta de cobro" — y del `detalle` que ya trae calculado
+// se suma solo lo que corresponde a este profesor: provablemente el mismo número que si se sumaran a
+// mano las cuentas de cobro reales de sus clientes.
+// La "pérdida por cancelaciones" es distinta: no es un valor que la cuenta de cobro muestre (la cuenta
+// solo lista lo que SÍ se cobra), así que sigue calculándose aquí — con los mismos campos de cliente y
+// las mismas reglas de cancelación que usa computeInvoiceValues, nunca inventados ni aproximados.
 // 30/07/2026: ya no hace falta agrupar por pareja/deduplicar aquí — con el modelo de facturación por
 // modalidad, cada cliente tiene siempre su propio registro y su propio precio (incluida la sesión
 // semipersonalizada de una pareja, que ya viene a su propio valor real desde la lista de precios), así
 // que sumar cada registro de cada cliente por separado ya da el valor correcto, sin doble conteo.
 // 02/08/2026: monthStr es opcional — pasar null/undefined pide "todo el histórico" sin filtrar por mes.
 function resumenValorProfesorMes(profesorId, monthStr){
+  const nombreProfesor = profesorNombre(profesorId);
   const entriesByClient = {};
   REGISTROS.filter(r=>r.profesorId===profesorId && r.fecha && (!monthStr || r.fecha.startsWith(monthStr))).forEach(r=>{
     (entriesByClient[r.clienteId] = entriesByClient[r.clienteId]||[]).push(r);
@@ -7225,6 +7245,10 @@ function resumenValorProfesorMes(profesorId, monthStr){
   Object.entries(entriesByClient).forEach(([clienteId, entries])=>{
     const cliente = CLIENTES.find(c=>c.id===clienteId);
     if(!cliente || cliente.tarifa==null) return; // sin tarifa verificada en Drive: no se inventa, se excluye del cálculo
+    // Cuenta de cobro real de este cliente para el mes — de ahí sale "Valor clases", tal cual.
+    computeInvoiceValues(clienteId, monthStr).detalle
+      .filter(d=> d.profesor===nombreProfesor && MODALIDADES_SESION.includes(d.texto))
+      .forEach(d=>{ valorClases += d.costo; });
     // 01/08/2026: reglas de cancelación de agosto 2026 — mismos valores absolutos por cliente que
     // usa computeInvoiceValues (normal: cancelSobreTiempo/cancelDelDia/cancelNochePrevia;
     // semipersonalizada: cancelSemiSobreTiempo/cancelSemiDelDia/cancelSemiNochePrevia), ya no hay
@@ -7236,11 +7260,7 @@ function resumenValorProfesorMes(profesorId, monthStr){
     const unitDelDiaSemi = cliente.cancelSemiDelDia!=null ? cliente.cancelSemiDelDia : unitDelDia;
     const unitNochePreviaSemi = cliente.cancelSemiNochePrevia!=null ? cliente.cancelSemiNochePrevia : unitNochePrevia;
     entries.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)).forEach(h=>{
-      if(h.estado!=='cancelada'){
-        // 30/07/2026: precioPorModalidad_ ya cubre masaje, adaptado y semipersonalizado (y traduce
-        // los valores viejos 'Presencial'/'Virtual' que sigan llegando de Sheets ya sincronizados).
-        valorClases += precioPorModalidad_(cliente, h.modalidad);
-      } else {
+      if(h.estado==='cancelada'){
         const esSemi = h.modalidad==='Entrenamiento semipersonalizado Presencial' || h.modalidad==='Entrenamiento semipersonalizado Online';
         // Valor de referencia de la clase que se canceló: la tarifa completa para una normal, o la
         // tarifa semipersonalizada para una conjunta (mismo criterio que computeInvoiceValues).
@@ -7326,20 +7346,82 @@ function renderClientes(){
             <th style="padding:6px 10px;">Pérdida por cancelaciones ${verHistorico?'(histórico)':'(mes)'}</th>
           </tr></thead>
           <tbody>
-            ${PROFESORES.map(p=>{
-              const clasesSemana = SCHEDULE_TEMPLATE.filter(s=>s.profesorId===p.id).length;
+            ${(()=>{
+            // 27/08/2026 — pedido explícito de Andersson: fila de totales al final del panel. Se
+            // calcula cada profesor primero como datos puros (no HTML) para poder sumar clasesSemana/
+            // cancelacionesMes/horas-totales-reales/valorClases/valorPerdida de los tres al final —
+            // "Prom. horas / semana" del total NO es la suma de los promedios (eso doble-contaría
+            // semanas), es horas reales totales de los tres profesores ÷ las mismas semanas del mes.
+            const filas = PROFESORES.map(p=>{
+              // 27/08/2026 — BUG REAL encontrado en el cierre de mes: esto contaba TODAS las filas de
+              // la plantilla del profesor, incluyendo los bloques "Disponible"/"Almuerzo"/
+              // "Desplazamiento" (que no tienen clienteId) como si fueran clases dictadas. En Karen,
+              // que tiene muchos huecos libres en su horario, esto mostraba 39 "clases/semana" cuando
+              // en realidad solo dicta 20 — casi el doble. Se filtra por `clienteId` (solo lo tienen
+              // las filas que son una clase real de un cliente) para contar únicamente clases de verdad.
+              const clasesSemana = SCHEDULE_TEMPLATE.filter(s=>s.profesorId===p.id && s.clienteId).length;
               const cancelacionesMes = REGISTROS.filter(r=>r.profesorId===p.id && r.fecha && (verHistorico || r.fecha.startsWith(STATE.invoiceMonth)) && r.estado==='cancelada').length;
-              const horasSemana = clasesSemana; // 1h estimada por clase (duración no registrada aún)
+              // Cada sesión dura exactamente 1 hora (ver el fix de horaFin/calcHoraFin del 24/08/2026)
+              // 27/08/2026 — pedido explícito de Andersson: "Prom. horas / semana" no debe salir del
+              // horario fijo (eso ya lo muestra "Clases / semana" arriba) sino de lo que REALMENTE
+              // pasó — las sesiones que se completaron y las que se cancelaron cada semana (una
+              // cancelación igual ocupó ese espacio en la agenda del profesor, aunque no se cobre
+              // completa). Cada sesión dura exactamente 1 hora (ver el fix de horaFin/calcHoraFin del
+              // 24/08/2026), así que la cuenta de horas es directamente la cantidad de registros.
+              // Los estados reales que usa un registro son 'cerrado'/'abierto' (sesión dictada, con o
+              // sin cierre de signos vitales) y 'cancelada' — nunca 'completada' (mismo criterio ya
+              // usado en resumenValorProfesorMes/sesionesCompletadasDelMes: cualquier registro que
+              // exista cuenta, se filtra solo por profesor y fecha).
+              const registrosRealesDelProfesor = REGISTROS.filter(r=> r.profesorId===p.id && r.fecha
+                && (verHistorico || r.fecha.startsWith(STATE.invoiceMonth)));
+              let semanasParaPromedio;
+              if(verHistorico){
+                // Sin un mes puntual, se promedia sobre las semanas donde de verdad hubo actividad
+                // registrada (no tendría sentido dividir sobre "todas las semanas desde el inicio").
+                const lunesVistos = new Set();
+                registrosRealesDelProfesor.forEach(r=>{
+                  const d = new Date(r.fecha+'T00:00:00');
+                  const diff = (d.getDay()+6)%7;
+                  const lunes = new Date(d); lunes.setDate(d.getDate()-diff);
+                  lunesVistos.add(isoDate(lunes));
+                });
+                semanasParaPromedio = lunesVistos.size || 1;
+              } else {
+                const [yInv, mInv] = STATE.invoiceMonth.split('-').map(Number);
+                semanasParaPromedio = semanasEnMes_(yInv, mInv-1) || 1;
+              }
+              const horasSemana = registrosRealesDelProfesor.length ? +(registrosRealesDelProfesor.length / semanasParaPromedio).toFixed(1) : 0;
               const { valorClases, valorPerdida } = resumenValorProfesorMes(p.id, verHistorico ? null : STATE.invoiceMonth);
-              return `<tr style="border-top:1px solid var(--line);">
-                <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:700;">${p.nombre}</td>
-                <td data-label="Clases / semana" style="padding:9px 10px;">${clasesSemana}</td>
-                <td data-label="Cancelaciones" style="padding:9px 10px;${cancelacionesMes?'color:var(--danger);font-weight:700;':''}">${cancelacionesMes}</td>
-                <td data-label="Prom. horas / semana" style="padding:9px 10px;">${horasSemana} h</td>
-                <td data-label="Valor clases" style="padding:9px 10px;font-weight:700;color:var(--teal-dark);">${money(valorClases)}</td>
-                <td data-label="Pérdida por cancelaciones" style="padding:9px 10px;${valorPerdida?'color:var(--danger);font-weight:700;':''}">${money(valorPerdida)}</td>
+              return {nombre:p.nombre, clasesSemana, cancelacionesMes, horasReales:registrosRealesDelProfesor.length, semanasParaPromedio, horasSemana, valorClases, valorPerdida};
+            });
+            const totalHorasReales = filas.reduce((a,f)=>a+f.horasReales,0);
+            // Todos comparten las mismas semanas del mes (o, en histórico, semanas ligeramente
+            // distintas por profesor) — se toma el mayor de los tres para no dividir de más.
+            const semanasTotal = Math.max(1, ...filas.map(f=>f.semanasParaPromedio));
+            const total = {
+              clasesSemana: filas.reduce((a,f)=>a+f.clasesSemana,0),
+              cancelacionesMes: filas.reduce((a,f)=>a+f.cancelacionesMes,0),
+              horasSemana: +(totalHorasReales/semanasTotal).toFixed(1),
+              valorClases: filas.reduce((a,f)=>a+f.valorClases,0),
+              valorPerdida: filas.reduce((a,f)=>a+f.valorPerdida,0),
+            };
+            const filaHTML = f => `<tr style="border-top:1px solid var(--line);">
+                <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:700;">${f.nombre}</td>
+                <td data-label="Clases / semana" style="padding:9px 10px;">${f.clasesSemana}</td>
+                <td data-label="Cancelaciones" style="padding:9px 10px;${f.cancelacionesMes?'color:var(--danger);font-weight:700;':''}">${f.cancelacionesMes}</td>
+                <td data-label="Prom. horas / semana" style="padding:9px 10px;">${f.horasSemana} h</td>
+                <td data-label="Valor clases" style="padding:9px 10px;font-weight:700;color:var(--teal-dark);">${money(f.valorClases)}</td>
+                <td data-label="Pérdida por cancelaciones" style="padding:9px 10px;${f.valorPerdida?'color:var(--danger);font-weight:700;':''}">${money(f.valorPerdida)}</td>
               </tr>`;
-            }).join('')}
+            return filas.map(filaHTML).join('') + `<tr style="border-top:2px solid var(--line);background:var(--paper-dim);">
+                <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:800;">Total</td>
+                <td data-label="Clases / semana" style="padding:9px 10px;font-weight:800;">${total.clasesSemana}</td>
+                <td data-label="Cancelaciones" style="padding:9px 10px;font-weight:800;${total.cancelacionesMes?'color:var(--danger);':''}">${total.cancelacionesMes}</td>
+                <td data-label="Prom. horas / semana" style="padding:9px 10px;font-weight:800;">${total.horasSemana} h</td>
+                <td data-label="Valor clases" style="padding:9px 10px;font-weight:800;color:var(--teal-dark);">${money(total.valorClases)}</td>
+                <td data-label="Pérdida por cancelaciones" style="padding:9px 10px;font-weight:800;${total.valorPerdida?'color:var(--danger);':''}">${money(total.valorPerdida)}</td>
+              </tr>`;
+            })()}
           </tbody>
         </table>
       </div>
