@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-27.3">
+<meta name="app-version" content="2026-08-27.4">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -7159,6 +7159,10 @@ function renderDocs(){
 /* ===================== MODULO 4: INFORMACION CLIENTES ===================== */
 let clientesSearch = '';
 let driveLastSync = 'Hace 12 min';
+// 27/08/2026 — pedido explícito de Andersson: buscar UN cliente puntual y ver su historial directo
+// en Analítica, sin tener que ver las tarjetas de los 34 clientes otra vez (eso ya está en Clientes).
+let analiticaHistorialSearch = '';
+let analiticaHistorialClienteId = null;
 // ---- Historial mensual / promedios anuales por cliente (para la ficha de cliente y el dashboard) ----
 function anioActual(){ return String(new Date().getFullYear()); }
 function mesesTranscurridosAnio(){ return new Date().getMonth()+1; } // enero=1 ... incluye el mes actual
@@ -7354,14 +7358,19 @@ function renderClientes(){
 // anticipada de una clase de septiembre quedaba mezclada con las de agosto, sin forma de separarlas
 // — exactamente lo que Andersson reportó. Independiente del mes/histórico seleccionado arriba: esto
 // siempre muestra TODOS los meses con datos, uno por fila.
-function desgloseAnticipadasPorMes_(){
+// 27/08/2026 (más tarde, mismo día) — pedido explícito de Andersson: además de "anticipada", separar
+// por mes también "del_dia" y "noche_previa" — mismo criterio de siempre (mes real de la clase
+// cancelada, `r.fecha`, nunca la fecha en que se registró la cancelación).
+function desgloseCancelacionesPorMesYTipo_(){
+  const TIPOS = ['anticipada','del_dia','noche_previa'];
   const counts = {};
-  REGISTROS.filter(r=>r.estado==='cancelada' && r.tipoCancelacion==='anticipada' && r.fecha).forEach(r=>{
+  REGISTROS.filter(r=>r.estado==='cancelada' && TIPOS.includes(r.tipoCancelacion) && r.fecha).forEach(r=>{
     const mes = r.fecha.slice(0,7);
-    counts[mes] = (counts[mes]||0)+1;
+    if(!counts[mes]) counts[mes] = {anticipada:0, del_dia:0, noche_previa:0};
+    counts[mes][r.tipoCancelacion]++;
   });
   return Object.entries(counts)
-    .map(([mes,count])=>({mes, label:nombreMes(mes), count}))
+    .map(([mes,c])=>({mes, label:nombreMes(mes), ...c, total:c.anticipada+c.del_dia+c.noche_previa}))
     .sort((a,b)=>a.mes.localeCompare(b.mes));
 }
 
@@ -7383,7 +7392,7 @@ function renderAnalitica(){
   // 02/08/2026: pedido explícito de Andersson — desglose de TODAS las cancelaciones del negocio
   // por tipo, de mayor a menor, para el dashboard del administrador (año actual o histórico según el toggle).
   const topTiposCancel = desgloseCancelacionesPorTipo_(REGISTROS.filter(r=>r.estado==='cancelada' && r.fecha && (verHistorico || r.fecha.startsWith(anioActual()))));
-  const anticipadasPorMes = desgloseAnticipadasPorMes_();
+  const cancelacionesPorMesYTipo = desgloseCancelacionesPorMesYTipo_();
 
   el.innerHTML = `
     <div class="card fade-up" style="padding:12px 16px;display:flex;gap:8px;align-items:center;margin-bottom:12px;width:fit-content;flex-wrap:wrap;">
@@ -7469,19 +7478,16 @@ function renderAnalitica(){
               }
               const horasSemana = registrosRealesDelProfesor.length ? +(registrosRealesDelProfesor.length / semanasParaPromedio).toFixed(1) : 0;
               const { valorClases, valorPerdida } = resumenValorProfesorMes(p.id, verHistorico ? null : STATE.invoiceMonth);
-              return {nombre:p.nombre, clasesSemana, cancelacionesMes, horasReales:registrosRealesDelProfesor.length, semanasParaPromedio, horasSemana, valorClases, valorPerdida};
+              return {id:p.id, nombre:p.nombre, clasesSemana, cancelacionesMes, horasReales:registrosRealesDelProfesor.length, semanasParaPromedio, horasSemana, valorClases, valorPerdida};
             });
-            const totalHorasReales = filas.reduce((a,f)=>a+f.horasReales,0);
-            // Todos comparten las mismas semanas del mes (o, en histórico, semanas ligeramente
-            // distintas por profesor) — se toma el mayor de los tres para no dividir de más.
-            const semanasTotal = Math.max(1, ...filas.map(f=>f.semanasParaPromedio));
-            const total = {
-              clasesSemana: filas.reduce((a,f)=>a+f.clasesSemana,0),
-              cancelacionesMes: filas.reduce((a,f)=>a+f.cancelacionesMes,0),
-              horasSemana: +(totalHorasReales/semanasTotal).toFixed(1),
-              valorClases: filas.reduce((a,f)=>a+f.valorClases,0),
-              valorPerdida: filas.reduce((a,f)=>a+f.valorPerdida,0),
-            };
+            const sumar = lista => ({
+              clasesSemana: lista.reduce((a,f)=>a+f.clasesSemana,0),
+              cancelacionesMes: lista.reduce((a,f)=>a+f.cancelacionesMes,0),
+              horasSemana: +(lista.reduce((a,f)=>a+f.horasReales,0) / Math.max(1,...lista.map(f=>f.semanasParaPromedio))).toFixed(1),
+              valorClases: lista.reduce((a,f)=>a+f.valorClases,0),
+              valorPerdida: lista.reduce((a,f)=>a+f.valorPerdida,0),
+            });
+            const total = sumar(filas);
             const filaHTML = f => `<tr style="border-top:1px solid var(--line);">
                 <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:700;">${f.nombre}</td>
                 <td data-label="Clases / semana" style="padding:9px 10px;">${f.clasesSemana}</td>
@@ -7490,7 +7496,23 @@ function renderAnalitica(){
                 <td data-label="Valor clases" style="padding:9px 10px;font-weight:700;color:var(--teal-dark);">${money(f.valorClases)}</td>
                 <td data-label="Pérdida por cancelaciones" style="padding:9px 10px;${f.valorPerdida?'color:var(--danger);font-weight:700;':''}">${money(f.valorPerdida)}</td>
               </tr>`;
-            return filas.map(filaHTML).join('') + `<tr style="border-top:2px solid var(--line);background:var(--paper-dim);">
+            // 27/08/2026 — pedido explícito de Andersson: subtotal de Daniel + Karen, justo después de
+            // Karen y antes de Andersson (que queda aparte, como dueño del negocio, no como profesor
+            // más). Se arma por id, no por posición en el arreglo, para que no dependa del orden en
+            // que estén declarados PROFESORES.
+            const idsGrupo = ['u_daniel','u_karen'];
+            const filasGrupo = filas.filter(f=>idsGrupo.includes(f.id));
+            const filasOtros = filas.filter(f=>!idsGrupo.includes(f.id));
+            const subtotalGrupo = {nombre:'Subtotal Daniel + Karen', ...sumar(filasGrupo)};
+            const subtotalRowHTML = filasGrupo.length ? `<tr style="border-top:1px solid var(--line);background:var(--paper-dim);">
+                <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:800;font-style:italic;">${subtotalGrupo.nombre}</td>
+                <td data-label="Clases / semana" style="padding:9px 10px;font-weight:800;">${subtotalGrupo.clasesSemana}</td>
+                <td data-label="Cancelaciones" style="padding:9px 10px;font-weight:800;${subtotalGrupo.cancelacionesMes?'color:var(--danger);':''}">${subtotalGrupo.cancelacionesMes}</td>
+                <td data-label="Prom. horas / semana" style="padding:9px 10px;font-weight:800;">${subtotalGrupo.horasSemana} h</td>
+                <td data-label="Valor clases" style="padding:9px 10px;font-weight:800;color:var(--teal-dark);">${money(subtotalGrupo.valorClases)}</td>
+                <td data-label="Pérdida por cancelaciones" style="padding:9px 10px;font-weight:800;${subtotalGrupo.valorPerdida?'color:var(--danger);':''}">${money(subtotalGrupo.valorPerdida)}</td>
+              </tr>` : '';
+            return filasGrupo.map(filaHTML).join('') + subtotalRowHTML + filasOtros.map(filaHTML).join('') + `<tr style="border-top:2px solid var(--line);background:var(--paper-dim);">
                 <td data-label="Profesor" style="padding:9px 10px 9px 0;font-weight:800;">Total</td>
                 <td data-label="Clases / semana" style="padding:9px 10px;font-weight:800;">${total.clasesSemana}</td>
                 <td data-label="Cancelaciones" style="padding:9px 10px;font-weight:800;${total.cancelacionesMes?'color:var(--danger);':''}">${total.cancelacionesMes}</td>
@@ -7535,14 +7557,57 @@ function renderAnalitica(){
           </div>`).join('') : `<div class="section-sub" style="padding:10px 0;">Sin cancelaciones registradas ${verHistorico?'':`en ${anioActual()}`}.</div>`}
       </div>
     </div>
-    <div class="card fade-up" style="padding:18px 20px;margin-bottom:20px;max-width:420px;">
-      <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Cancelaciones anticipadas por mes</div>
+    <div class="card fade-up" style="padding:18px 20px;margin-bottom:20px;max-width:520px;">
+      <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Cancelaciones por mes y tipo</div>
       <div class="section-sub" style="margin-bottom:12px;">Según el mes real de la clase cancelada, no el mes en que se registró la cancelación</div>
-      ${anticipadasPorMes.length ? anticipadasPorMes.map((r,i)=>`
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;${i? 'border-top:1px solid var(--line);':''}">
-          <span style="flex:1;font-size:13px;font-weight:600;text-transform:capitalize;">${r.label}</span>
-          <span class="pill pill-gray" style="font-size:10.5px;">${r.count} anticipada${r.count===1?'':'s'}</span>
-        </div>`).join('') : `<div class="section-sub" style="padding:10px 0;">Sin cancelaciones anticipadas registradas.</div>`}
+      ${cancelacionesPorMesYTipo.length ? `
+      <div class="table-wrap">
+        <table class="mobile-cards" style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="text-align:left;color:var(--ink-fade);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;">
+            <th style="padding:4px 8px 4px 0;">Mes</th>
+            <th style="padding:4px 8px;">Anticipada</th>
+            <th style="padding:4px 8px;">Del día</th>
+            <th style="padding:4px 8px;">Noche previa</th>
+          </tr></thead>
+          <tbody>
+            ${cancelacionesPorMesYTipo.map((r,i)=>`
+            <tr style="border-top:1px solid var(--line);">
+              <td data-label="Mes" style="padding:7px 8px 7px 0;font-weight:700;text-transform:capitalize;">${r.label}</td>
+              <td data-label="Anticipada" style="padding:7px 8px;">${r.anticipada}</td>
+              <td data-label="Del día" style="padding:7px 8px;">${r.del_dia}</td>
+              <td data-label="Noche previa" style="padding:7px 8px;">${r.noche_previa}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : `<div class="section-sub" style="padding:10px 0;">Sin cancelaciones de estos tipos registradas.</div>`}
+    </div>
+    <div class="card fade-up" style="padding:18px 20px;margin-bottom:20px;max-width:520px;">
+      <div style="font-weight:800;font-size:14px;margin-bottom:2px;">Historial por cliente</div>
+      <div class="section-sub" style="margin-bottom:12px;">Busca un cliente puntual para ver su historial completo, sin abrir su ficha</div>
+      <div style="position:relative;max-width:320px;">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-fade);display:inline-flex">${ICONS.search}</span>
+        <input type="text" id="analiticaHistorialSearch" placeholder="Buscar cliente…" value="${analiticaHistorialSearch}" autocomplete="off" style="width:100%;padding:9px 12px 9px 34px;border:1.5px solid var(--line);border-radius:100px;font-size:13px;">
+        ${analiticaHistorialSearch.trim() ? `
+        <div id="analiticaHistorialResultados" class="card" style="position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;max-height:220px;overflow-y:auto;padding:4px;box-shadow:var(--shadow-md);">
+          ${(()=>{
+            const q = analiticaHistorialSearch.trim().toLowerCase();
+            const resultados = baseClientes.filter(c=>c.nombre.toLowerCase().includes(q)).slice(0,8);
+            return resultados.length ? resultados.map(c=>`<div data-pick-hist-cliente="${c.id}" style="padding:8px 12px;cursor:pointer;font-size:13px;font-weight:600;border-radius:8px;" onmouseover="this.style.background='var(--paper-dim)'" onmouseout="this.style.background='transparent'">${c.nombre}</div>`).join('')
+              : `<div class="section-sub" style="padding:8px 12px;">Sin resultados.</div>`;
+          })()}
+        </div>` : ''}
+      </div>
+      ${analiticaHistorialClienteId ? (()=>{
+        const c = CLIENTES.find(x=>x.id===analiticaHistorialClienteId);
+        if(!c) return '';
+        return `<div style="margin-top:14px;">
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">
+            <div class="avatar" style="width:34px;height:34px;font-size:13px;background:var(--teal);">${initials(c.nombre)}</div>
+            <div style="font-weight:700;font-size:14px;">${c.nombre}</div>
+          </div>
+          ${historialClienteHTML_(c)}
+        </div>`;
+      })() : ''}
     </div>
   `;
   if(!verHistorico){
@@ -7558,6 +7623,17 @@ function renderAnalitica(){
   document.getElementById('btnClientesToggleHistorico').addEventListener('click', ()=>{
     STATE.clientesVistaHistorico = !STATE.clientesVistaHistorico;
     renderAnalitica();
+  });
+  document.getElementById('analiticaHistorialSearch').addEventListener('input', e=>{
+    analiticaHistorialSearch = e.target.value;
+    reRenderPreserveFocus(renderAnalitica, 'analiticaHistorialSearch');
+  });
+  document.querySelectorAll('[data-pick-hist-cliente]').forEach(item=>{
+    item.addEventListener('click', ()=>{
+      analiticaHistorialClienteId = item.dataset.pickHistCliente;
+      analiticaHistorialSearch = '';
+      renderAnalitica();
+    });
   });
 }
 
@@ -7632,14 +7708,58 @@ async function refrescarAnamnesisFicha_(c){
   if(el){ el.innerHTML = escaparHtml_(textoAnamnesisFicha_(c)); ajustarVerMasAnamnesis_(); }
 }
 
-function openClienteModal(id){
-  const c = CLIENTES.find(x=>x.id===id);
+// 27/08/2026 — pedido explícito de Andersson: poder ver el historial de un cliente puntual también
+// desde Analítica (ver renderAnalitica), sin tener que abrir su ficha completa en Clientes. Se
+// extrae aquí, tal cual estaba, el bloque que ya existía dentro de la ficha (openClienteModal) para
+// que las dos pantallas muestren exactamente lo mismo, sin dos implementaciones que se desincronicen.
+function historialClienteHTML_(c){
   const porMes = historialMensualCliente(c.id);
   const mesesOrdenados = Object.keys(porMes).sort();
   const prom = promedioAnualCliente(c.id);
   // 02/08/2026: pedido explícito de Andersson — mismo desglose por tipo que en el dashboard general,
   // pero solo de las cancelaciones de ESTE cliente (año actual), de mayor a menor.
   const desgloseCliente = desgloseCancelacionesPorTipo_(REGISTROS.filter(r=>r.clienteId===c.id && r.estado==='cancelada' && r.fecha && r.fecha.startsWith(anioActual())));
+  return `
+        <div class="card" style="padding:14px;background:var(--paper-dim);border:none;">
+          <div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">Historial de sesiones por mes (${anioActual()})</div>
+          <div class="section-sub" style="margin-bottom:10px;">Sesiones completadas y cancelaciones, mes a mes</div>
+          ${mesesOrdenados.length ? `
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+              <thead><tr style="text-align:left;color:var(--ink-fade);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;">
+                <th style="padding:4px 8px 4px 0;">Mes</th>
+                <th style="padding:4px 8px;">Completadas</th>
+                <th style="padding:4px 8px;">Canceladas</th>
+              </tr></thead>
+              <tbody>
+                ${mesesOrdenados.map(mes=>`
+                <tr style="border-top:1px solid var(--line);">
+                  <td style="padding:7px 8px 7px 0;font-weight:600;text-transform:capitalize;">${nombreMes(mes)}</td>
+                  <td style="padding:7px 8px;color:var(--teal-dark);font-weight:700;">${porMes[mes].completadas}</td>
+                  <td style="padding:7px 8px;${porMes[mes].canceladas?'color:var(--danger);font-weight:700;':''}">${porMes[mes].canceladas}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>` : `<div class="section-sub">Sin sesiones ni cancelaciones registradas en ${anioActual()} todavía.</div>`}
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+            <div class="pill pill-teal" style="font-size:11px;">Promedio ${prom.promSesiones.toFixed(1)} sesiones completadas / mes</div>
+            <div class="pill pill-danger" style="font-size:11px;">Promedio ${prom.promCancelaciones.toFixed(1)} cancelaciones / mes</div>
+          </div>
+          <div class="section-sub" style="margin-top:6px;">Calculado sobre los ${prom.meses} mes${prom.meses===1?'':'es'} transcurridos de ${anioActual()} (${prom.completadas} completadas y ${prom.canceladas} canceladas en total este año).</div>
+          ${desgloseCliente.length ? `
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+            <div style="font-weight:700;font-size:12.5px;margin-bottom:8px;">Sus cancelaciones por tipo (${anioActual()}), de mayor a menor</div>
+            ${desgloseCliente.map((r,i)=>`
+              <div style="display:flex;align-items:center;gap:10px;padding:5px 0;${i? 'border-top:1px solid var(--line);':''}">
+                <span style="width:16px;font-size:11.5px;color:var(--ink-fade);font-weight:700;">${i+1}</span>
+                <span style="flex:1;font-size:12.5px;font-weight:600;">${r.label}</span>
+                <span class="pill ${r.cls}" style="font-size:10px;">${r.count}</span>
+              </div>`).join('')}
+          </div>` : ''}
+        </div>`;
+}
+function openClienteModal(id){
+  const c = CLIENTES.find(x=>x.id===id);
   // 09/08/2026 — bug real reportado por Andersson: la Anamnesis de un cliente nuevo (auto-creado por
   // syncBaseClientesDesdeSheet_) nunca aparecía en esta ficha, aunque el PDF de "Descargar" sí la traía
   // bien. Causa: el texto de abajo mostraba c.diagnostico, un resumen escrito A MANO una sola vez para
@@ -7678,44 +7798,7 @@ function openClienteModal(id){
             </button>
           </div>
         </div>
-        ${isAdminOverview() ? `
-        <div class="card" style="padding:14px;background:var(--paper-dim);border:none;">
-          <div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">Historial de sesiones por mes (${anioActual()})</div>
-          <div class="section-sub" style="margin-bottom:10px;">Sesiones completadas y cancelaciones, mes a mes</div>
-          ${mesesOrdenados.length ? `
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-              <thead><tr style="text-align:left;color:var(--ink-fade);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;">
-                <th style="padding:4px 8px 4px 0;">Mes</th>
-                <th style="padding:4px 8px;">Completadas</th>
-                <th style="padding:4px 8px;">Canceladas</th>
-              </tr></thead>
-              <tbody>
-                ${mesesOrdenados.map(mes=>`
-                <tr style="border-top:1px solid var(--line);">
-                  <td style="padding:7px 8px 7px 0;font-weight:600;text-transform:capitalize;">${nombreMes(mes)}</td>
-                  <td style="padding:7px 8px;color:var(--teal-dark);font-weight:700;">${porMes[mes].completadas}</td>
-                  <td style="padding:7px 8px;${porMes[mes].canceladas?'color:var(--danger);font-weight:700;':''}">${porMes[mes].canceladas}</td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>` : `<div class="section-sub">Sin sesiones ni cancelaciones registradas en ${anioActual()} todavía.</div>`}
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
-            <div class="pill pill-teal" style="font-size:11px;">Promedio ${prom.promSesiones.toFixed(1)} sesiones completadas / mes</div>
-            <div class="pill pill-danger" style="font-size:11px;">Promedio ${prom.promCancelaciones.toFixed(1)} cancelaciones / mes</div>
-          </div>
-          <div class="section-sub" style="margin-top:6px;">Calculado sobre los ${prom.meses} mes${prom.meses===1?'':'es'} transcurridos de ${anioActual()} (${prom.completadas} completadas y ${prom.canceladas} canceladas en total este año).</div>
-          ${desgloseCliente.length ? `
-          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-            <div style="font-weight:700;font-size:12.5px;margin-bottom:8px;">Sus cancelaciones por tipo (${anioActual()}), de mayor a menor</div>
-            ${desgloseCliente.map((r,i)=>`
-              <div style="display:flex;align-items:center;gap:10px;padding:5px 0;${i? 'border-top:1px solid var(--line);':''}">
-                <span style="width:16px;font-size:11.5px;color:var(--ink-fade);font-weight:700;">${i+1}</span>
-                <span style="flex:1;font-size:12.5px;font-weight:600;">${r.label}</span>
-                <span class="pill ${r.cls}" style="font-size:10px;">${r.count}</span>
-              </div>`).join('')}
-          </div>` : ''}
-        </div>` : ''}
+        ${isAdminOverview() ? historialClienteHTML_(c) : ''}
       </div>
     </div>
     <div class="modal-foot" style="flex-wrap:wrap;">
