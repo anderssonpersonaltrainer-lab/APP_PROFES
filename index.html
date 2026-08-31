@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-27.5">
+<meta name="app-version" content="2026-08-28.2">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -6444,15 +6444,15 @@ const NORMAS_CANCELACION = [
   {n:3, t:'Cancelación sobre el tiempo:', d:'Cuando el cliente notifique la cancelación de la clase faltando tres horas o menos tiempo para su ejecución, se considerará una cancelación sobre el tiempo. En este caso el cliente acuerda asumir el 100% del costo de la clase.'},
   {n:4, t:'Cancelación del día:', d:'Si el día en que se tiene agendada la sesión de entrenamiento, el cliente cancela la misma con más de tres horas para su realización, el cliente acepta asumir el 50% del costo total de la clase.'},
   {n:5, t:'Cancelación la noche previa:', d:'Si el cliente cancela la sesión de entrenamiento después de las 6:00 p.m. del día inmediatamente anterior a la sesión agendada, el cliente acepta asumir el 25% del valor total de la sesión.'},
-  // 01/08/2026 (más tarde, mismo día): pedido explícito de Andersson — "la cancelación anticipada no
-  // existe ya", se quita la Regla 6 de este texto impreso también (antes: "Cancelación anticipada...
-  // no habrá costo alguno"). PENDIENTE PARA ANDERSSON: la Regla 7 (ahora n:6) todavía menciona la
-  // frase "se entenderá como una cancelación anticipada" — es texto literal del documento oficial
-  // "Reglas_para_la_cancelacion_agosto_2026.pdf", no lo reescribí por mi cuenta porque solo se
-  // confirmó quitar la Regla 6, no reeditar el resto del texto legal. Si esa frase ya no aplica,
-  // avisa para ajustarla (aquí y en el PDF oficial que compartes con los clientes, que tampoco toqué).
-  {n:6, t:'Reposición de la sesión:', d:'Cuando el cliente no pueda tomar alguna sesión y notifique de manera anticipada (antes de las seis de la tarde del día anterior), el cliente y el entrenador intentarán reagendar la sesión según la disponibilidad del entrenador. Si no es posible reagendar, se entenderá como una cancelación anticipada.'},
-  {n:7, t:'Cesión de sesiones de entrenamiento:', d:'Con el fin de mitigar los efectos derivados de la cancelación de más de dos sesiones seguidas, por razones de viaje, salud, etc., el cliente puede coordinar ceder a un tercero las sesiones que cancela de forma anticipada, sujeto a los ajustes logísticos necesarios por parte del entrenador.'},
+  // 28/08/2026 — RESTAURADA: el 01/08/2026 se había quitado de aquí por pedido de Andersson ("la
+  // cancelación anticipada no existe ya"), pero la categoría siguió usándose activamente en las
+  // cuentas de cobro reales (item "Cancelación anticipada (sin costo)", $0) y el documento oficial
+  // "Reglas_para_la_cancelacion_agosto_2026.pdf" en Drive siempre la tuvo. Andersson confirmó el
+  // 28/08/2026 que sí debe estar: el cliente necesita saber que esa cancelación no tiene costo.
+  // Texto y numeración iguales al documento oficial (vuelve a ser la Regla 6 de 8, no 6 de 7).
+  {n:6, t:'Cancelación anticipada:', d:'Cuando el cliente cancele la sesión antes de las de las 6:00 p.m. del día inmediatamente anterior a la sesión agendada o antes, no habrá costo alguno. Lo anterior aplica tanto para la cancelación de una sesión, como para cancelar un grupo de sesiones.'},
+  {n:7, t:'Reposición de la sesión:', d:'Cuando el cliente no pueda tomar alguna sesión y notifique de manera anticipada (antes de las seis de la tarde del día anterior), el cliente y el entrenador intentarán reagendar la sesión según la disponibilidad del entrenador. Si no es posible reagendar, se entenderá como una cancelación anticipada.'},
+  {n:8, t:'Cesión de sesiones de entrenamiento:', d:'Con el fin de mitigar los efectos derivados de la cancelación de más de dos sesiones seguidas, por razones de viaje, salud, etc., el cliente puede coordinar ceder a un tercero las sesiones que cancela de forma anticipada, sujeto a los ajustes logísticos necesarios por parte del entrenador.'},
 ];
 
 // Oculta del resumen los conceptos de cancelación que no tuvieron ninguna ocurrencia ese mes (cant=0)
@@ -6509,9 +6509,9 @@ function invoicePage1HTML(inv){
           <td style="text-align:right;padding:4px 6px;vertical-align:top;line-height:1.3;">${money(d.costo)}</td>
         </tr>`).join('')}
       </tbody>
-      <tfoot><tr style="background:#eaf1fc;">
-        <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;font-size:9.5px;">${inv.promedioSalud? `PROMEDIO SALUD (inicio de clase): ${promedioSaludTexto(inv.promedioSalud)}` : ''}</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
-      </tr></tfoot>
+      ${inv.promedioSalud ? `<tfoot><tr style="background:#eaf1fc;">
+        <td colspan="5" style="font-weight:700;color:#1e293b;padding:8px;font-size:9.5px;">PROMEDIO SALUD (inicio de clase): ${promedioSaludTexto(inv.promedioSalud)}</td>
+      </tr></tfoot>` : ''}
     </table>
 
     <div style="margin-top:24px;font-size:11.5px;line-height:1.7;color:#334155;">
@@ -6653,23 +6653,31 @@ function detalleRowHTML(d,i){
 
 // Bloque superior de la hoja 1: datos del cliente/administrador + tabla de ítems + total. Sin padding
 // inferior porque el bloque "DETALLE" continúa justo debajo, sin salto.
+// 28/08/2026 — pedido explícito de Andersson, cierre de mes: reportó que su cuenta de cobro (10
+// filas de detalle) salía en 2 hojas — la 1ª con el encabezado completo y las 10 filas, y una 2ª
+// hoja CASI EN BLANCO solo con el pie (promedio de salud/total/medios de pago/firma), porque ese pie
+// no alcanzaba a caber en lo que quedaba libre debajo de las filas. Medido en el PDF real: encabezado
+// 448pt + 10 filas 200pt = 648pt de 794pt de la hoja, solo quedaban 119pt libres y el pie necesitaba
+// 167pt. Se reduce aquí el espaciado vertical del encabezado (varios márgenes que no aportaban nada
+// al contenido) para dejar más espacio libre debajo, y así el pie quepa junto con el detalle en la
+// misma hoja para una cuenta típica.
 function invoiceHeaderBlockHTML(inv){
   const admin = USERS.find(u=>u.rol==='admin');
   return `
-  <div style="background:#fff;padding:28px 44px 0 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
-    <div style="text-align:center;margin-bottom:12px;display:flex;justify-content:center;">${logoImg('black', 54)}</div>
+  <div style="background:#fff;padding:16px 44px 0 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    <div style="text-align:center;margin-bottom:8px;display:flex;justify-content:center;">${logoImg('black', 54)}</div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;font-size:12.5px;">
       <div>Bogotá D.C&nbsp;&nbsp;&nbsp;${fmtFechaLarga(inv.fecha)}</div>
       <div><b>Cuenta</b>&nbsp;&nbsp;${inv.numero}</div>
     </div>
-    <div style="text-align:center;margin-top:14px;">
+    <div style="text-align:center;margin-top:10px;">
       <div style="font-weight:700;font-size:15px;">${inv.cliente.nombre}</div>
       <div style="font-size:12px;">CC: ${inv.cliente.cc}</div>
-      <div style="font-size:11.5px;letter-spacing:.1em;margin:14px 0 6px;">DEBE A:</div>
+      <div style="font-size:11.5px;letter-spacing:.1em;margin:10px 0 4px;">DEBE A:</div>
       <div style="font-weight:700;font-size:15px;">${admin.nombre}</div>
       <div style="font-size:12px;">CC: ${admin.cc}</div>
     </div>
-    <table style="margin-top:22px;font-size:12px;">
+    <table style="margin-top:14px;font-size:12px;">
       <thead><tr style="background:#eaf1fc;color:#1e293b;">
         <th style="text-align:center;">ITEM</th><th style="text-align:center;">CANTIDAD</th><th>DESCRIPCIÓN</th><th style="text-align:right;">VALOR UND</th><th style="text-align:right;">VALOR TOTAL</th>
       </tr></thead>
@@ -6680,12 +6688,12 @@ function invoiceHeaderBlockHTML(inv){
         </tr>`).join('')}
       </tbody>
     </table>
-    <div style="display:flex;justify-content:flex-end;margin-top:18px;">
-      <div style="border:1px solid #cbd5e1;background:#eaf1fc;border-radius:8px;padding:12px 22px;display:flex;gap:26px;align-items:center;">
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <div style="border:1px solid #cbd5e1;background:#eaf1fc;border-radius:8px;padding:10px 22px;display:flex;gap:26px;align-items:center;">
         <b style="font-size:13px;color:#1e293b;">TOTAL</b><b style="font-size:15px;color:#0f172a;">${money(inv.total)}</b>
       </div>
     </div>
-    <div style="margin-top:26px;background:#1e293b;color:#fff;padding:7px 0;text-align:center;font-weight:700;font-style:italic;font-size:12px;letter-spacing:.05em;">DETALLE</div>
+    <div style="margin-top:16px;background:#1e293b;color:#fff;padding:7px 0;text-align:center;font-weight:700;font-style:italic;font-size:12px;letter-spacing:.05em;">DETALLE</div>
     <table style="font-size:11px;margin-top:0;">${DETALLE_COLGROUP}<thead>${detalleTheadRowHTML()}</thead></table>
   </div>`;
 }
@@ -6709,20 +6717,26 @@ function invoiceRowsGroupHTML(rows, startIndex){
   </div>`;
 }
 
-// Fila de "PROMEDIO / TOTAL" + medios de pago + firma, al final del detalle.
+// Fila de "PROMEDIO DE SALUD" + medios de pago + firma, al final del detalle.
+// 28/08/2026 — pedido explícito de Andersson: esta fila repetía el TOTAL (ya se ve arriba, justo
+// después de la tabla de ítems) y le dejaba muy poco ancho al promedio de salud — se quita el TOTAL
+// de aquí y el promedio de salud pasa a usar todo el ancho de la fila. También se reduce el
+// espaciado vertical de esta sección (igual que en el encabezado) para que el pie completo quepa
+// junto con el detalle en la misma hoja, en vez de irse solo a una hoja aparte casi vacía.
 function invoiceFooterBlockHTML(inv){
   const admin = USERS.find(u=>u.rol==='admin');
   return `
-  <div style="background:#fff;padding:0 44px 40px 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+  <div style="background:#fff;padding:0 44px 22px 44px;font-family:'Poppins',sans-serif;color:#1a1a1a;width:${INVOICE_RENDER_W_PX}px;box-sizing:border-box;">
+    ${inv.promedioSalud ? `
     <table style="font-size:11px;">${DETALLE_COLGROUP}<tfoot><tr style="background:#eaf1fc;">
-      <td colspan="3" style="font-weight:700;color:#1e293b;padding:6px;font-size:9.5px;">${inv.promedioSalud? `PROMEDIO SALUD (inicio de clase): ${promedioSaludTexto(inv.promedioSalud)}` : ''}</td><td style="font-weight:700;text-align:right;color:#1e293b;padding:6px;">TOTAL</td><td style="font-weight:700;text-align:right;color:#0f172a;padding:6px;">${money(inv.total)}</td>
-    </tr></tfoot></table>
-    <div style="margin-top:24px;font-size:11.5px;line-height:1.7;color:#334155;">
+      <td colspan="5" style="font-weight:700;color:#1e293b;padding:8px;font-size:9.5px;">PROMEDIO SALUD (inicio de clase): ${promedioSaludTexto(inv.promedioSalud)}</td>
+    </tr></tfoot></table>` : ''}
+    <div style="margin-top:14px;font-size:11.5px;line-height:1.7;color:#334155;">
       <b style="color:#1e293b;">Medios de pago:</b><br>
       Cuenta de ahorros Davivienda: 462300040047<br>
       Nequi y Daviplata: 3209010722
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:30px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:18px;">
       <div>${logoImg('black', 60)}</div>
       <div style="text-align:right;font-size:11.5px;line-height:1.6;color:#334155;">
         Atentamente: <b style="color:#0f172a;">${admin.nombre}</b><br>
@@ -6791,6 +6805,10 @@ async function buildInvoicePDFBlob(inv){
         groupHeight += rh;
         groupEnd++;
       }
+      // 28/08/2026 — pedido explícito de Andersson: nunca más de 14 filas por hoja, aunque el
+      // espacio libre alcanzara para más — así cada hoja de detalle queda con una densidad
+      // predecible en vez de variar según cuánto texto de salud traiga cada fila.
+      if(groupEnd - idx > 14) groupEnd = idx + 14;
       if(groupEnd === idx) groupEnd = idx+1; // ni una fila cabe (espacio casi agotado): forzar al menos 1 para no ciclar infinito
       const group = await _renderBlockToImage(invoiceRowsGroupHTML(detalle.slice(idx, groupEnd), idx));
       pdf.addImage(group.dataUrl, 'PNG', 0, cursorY, INVOICE_PAGE_W_PT, group.heightPt);
