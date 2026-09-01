@@ -12,7 +12,7 @@
 <!-- 21/08/2026: la app maneja datos personales y de salud de clientes reales, asi que no debe
      aparecer en buscadores. Junto con robots.txt en la raiz. No cambia ninguna funcionalidad. -->
 <meta name="robots" content="noindex, nofollow, noarchive">
-<meta name="app-version" content="2026-08-28.2">
+<meta name="app-version" content="2026-09-01.1">
 <title>Andersson Personal Trainer · App</title>
 <script>
 /* 26/07/2026 — comprobación automática de versión / recarga forzada cuando hay una versión nueva
@@ -2855,6 +2855,22 @@ function _aplicarRegistrosRemotos_(cliente, rows){
         REGISTROS.push(remote);
       } else {
         const local = REGISTROS[localIdx];
+        // 01/09/2026 — BUG REAL reportado por Andersson: cerró la clase de María Lourdes (agregó
+        // detalle y signos vitales de cierre), la vio guardada un instante, y luego "se borró sola".
+        // La sesión SÍ quedó bien guardada en Drive (se verificó contra el Sheet real) — lo que pasó
+        // es una carrera: una sincronización de fondo (`pullRegistrosForCliente`, corre cada cierto
+        // tiempo) ya había pedido los registros de ese cliente ANTES de que el cierre terminara de
+        // subirse, así que la respuesta que llegó (después) todavía traía la fila vieja SIN cerrar.
+        // Esta función fusiona por id sin mirar cuál versión es mejor, así que esa respuesta vieja
+        // pisaba el cierre recién hecho en pantalla — hasta que el propio guardado terminaba de subir
+        // (unos segundos después) y lo corregía, pero mientras tanto el usuario veía "se borró".
+        // Mismo criterio que ya existía para deduplicar filas repetidas de una sola respuesta
+        // (`_puntajeFilaRegistro_`/`dedupeFilasRemotas_`, ver arriba) — ahora también se aplica AQUÍ:
+        // si este dispositivo tiene un cambio local todavía sin confirmar subido (`sincronizadoServidor
+        // !== true`) y ese cambio local está MÁS avanzado que lo que trajo el servidor, se conserva el
+        // local — la subida en curso de ese mismo cambio se encargará de confirmarlo en cuanto termine.
+        const remoteEsRetroceso = local.sincronizadoServidor!==true && _puntajeFilaRegistro_(local) > _puntajeFilaRegistro_(remote);
+        if(remoteEsRetroceso) return;
         const same = JSON.stringify(local) === JSON.stringify(Object.assign({}, local, remote));
         if(!same) REGISTROS[localIdx] = Object.assign({}, local, remote);
       }
